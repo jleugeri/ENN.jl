@@ -1,6 +1,6 @@
 module TimedAutomata
 
-export TMAState, ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMAState, TMATransition, RunState
+export TMAState, ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMAState, TMATransition, RunState, @condition
 
 const Event = NamedTuple{(:time,:symbol), Tuple{Float64, Symbol}}
 
@@ -75,6 +75,49 @@ struct TMARun
     X::RunState
 end
 TMARun(tma,inputs)=TMARun(tma,inputs,RunState(tma.s0, zeros(Float64,tma.num_clocks)))
+
+
+function parse_condition(expr)
+    if isa(expr, Bool) && expr
+        ClockNoCondition()
+    elseif isa(expr, Expr) && expr.head == :call
+        if expr.args[1] == :~
+            ClockNegCondition(parse_condition(expr.args[2]))
+        elseif expr.args[1] == :<
+            if isa(expr.args[2],Expr) && isa(expr.args[3],Expr) && expr.args[2].head == :ref && expr.args[3].head == :ref && expr.args[2].args[1] == :c &&  expr.args[3].args[1] == :c
+                ClockClockRefCondition{:<}(expr.args[2].args[2], expr.args[3].args[2])
+            elseif isa(expr.args[2],Expr) && expr.args[2].head == :ref && isa(expr.args[3], Real) && expr.args[2].args[1] == :c
+                ClockConstRefCondition{:<}(expr.args[2].args[2], expr.args[3])
+            elseif isa(expr.args[3],Expr) && expr.args[3].head == :ref && isa(expr.args[2], Real) && expr.args[3].args[1] == :c
+                ClockConstRefCondition{:>}(expr.args[3].args[2], expr.args[2])
+            else
+                raise("Either LHS or RHS must be reference to clock")
+            end
+        elseif expr.args[1] == :>
+            if isa(expr.args[2],Expr) && isa(expr.args[3],Expr) && expr.args[2].head == :ref && expr.args[3].head == :ref && expr.args[2].args[1] == :c &&  expr.args[3].args[1] == :c
+                ClockClockRefCondition{:>}(expr.args[2].args[2], expr.args[3].args[2])
+            elseif isa(expr.args[2],Expr) && expr.args[2].head == :ref && isa(expr.args[3], Real) && expr.args[2].args[1] == :c
+                ClockConstRefCondition{:>}(expr.args[2].args[2], expr.args[3])
+            elseif isa(expr.args[3],Expr) && expr.args[3].head == :ref && isa(expr.args[2], Real) && expr.args[3].args[1] == :c
+                ClockConstRefCondition{:<}(expr.args[3].args[2], expr.args[2])
+            else
+                raise("Either LHS or RHS must be reference to clock")
+            end
+        #else
+        end
+    elseif isa(expr, Expr) && expr.head == :(&&)
+        c1 = parse_condition(expr.args[1])
+        c2 = parse_condition(expr.args[2])
+
+        ClockAndCondition(c1, c2)
+    #else
+    end
+end
+
+
+macro condition(expr)
+    return parse_condition(expr)
+end
 
 function Base.iterate(r::TMARun, t0i=(0.0,0))
     t0,i = t0i
