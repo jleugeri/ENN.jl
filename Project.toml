@@ -1,0 +1,7 @@
+name = "TimedAutomata"
+uuid = "6fd9f67a-079e-11e9-10fd-bfb542d8a2c9"
+authors = ["johannes "]
+version = "0.1.0"
+
+[deps]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
