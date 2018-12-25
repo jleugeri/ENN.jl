@@ -66,13 +66,12 @@ struct TMA{TMAState}
     s0::TMAState
 end
 
-struct TMARun{TMAState}
+struct TMARun{TMAState, DropRepetitions}
     tma::TMA{TMAState}
     inputs::Vector{Event}
     X::RunState{TMAState}
-    drop_repetitions::Bool
 end
-TMARun(tma,inputs; drop_repetitions=false)=TMARun(tma,inputs,RunState(deepcopy(tma.s0), zeros(Float64,tma.num_clocks)), drop_repetitions)
+TMARun(tma::TMA{TMAState},inputs; drop_repetitions=false) where {TMAState} = TMARun{TMAState, drop_repetitions}(tma,inputs,RunState(deepcopy(tma.s0), zeros(Float64,tma.num_clocks)))
 
 
 function parse_condition(expr)
@@ -117,7 +116,11 @@ macro condition(expr)
     return parse_condition(expr)
 end
 
-function Base.iterate(r::TMARun, t0i=(0.0,0))
+Base.IteratorSize(::Type{TMARun{S,true}}) where {S} = Base.SizeUnknown()
+Base.IteratorSize(::Type{TMARun{S,false}}) where {S} = Base.HasLength()
+Base.length(r::TMARun{S,false}) where {S} = length(r.inputs)+1
+
+function Base.iterate(r::TMARun{S,DropRepetitions}, t0i=(0.0,0)) where {S,DropRepetitions}
     t0,i = t0i
 
     if i==0
@@ -151,13 +154,12 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
             end
         end
 
-        if ~r.drop_repetitions
+        if ~DropRepetitions
             keep_going = false
         end
     end
     return (t1,deepcopy(r.X)),(t1,i)
 end
 
-Base.length(r::TMARun) = length(r.inputs)+1
 
 end
