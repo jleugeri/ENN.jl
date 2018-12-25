@@ -126,6 +126,8 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
 
         return (t0,deepcopy(r.X)),(0.0, 1) 
     end
+    
+    t1 = t0
 
     keep_going = true
     while keep_going
