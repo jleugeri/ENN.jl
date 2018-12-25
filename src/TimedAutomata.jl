@@ -140,7 +140,7 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
             break
         end
     end
-    return RunState(r.X.state,r.X.clocks),(t1,i)
+    return RunState(copy(r.X.state),copy(r.X.clocks)),(t1,i)
 end
 
 Base.length(r::TMARun) = length(r.inputs)+1
