@@ -9,13 +9,13 @@ testrun = TMARun(
             [1,0],
             [1,1]
         ], 
-        [], 
+        Vector{Int}[], 
         2, 
         [
             TMATransition([0,0],[0,1],:a,[1],@condition true),
             TMATransition([0,1],[1,0],:b,[2],@condition true),
-            TMATransition([1,0],[1,1],:c,[],@condition c[1] < 1.0),
-            TMATransition([1,1],[0,0],:d,[],@condition c[2] > 2.0),
+            TMATransition([1,0],[1,1],:c,Int[],@condition c[1] < 1.0),
+            TMATransition([1,1],[0,0],:d,Int[],@condition c[2] > 2.0),
         ], 
         [0,0]
     ), 

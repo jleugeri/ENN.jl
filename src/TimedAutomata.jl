@@ -1,18 +1,15 @@
 module TimedAutomata
 
-export TMAState, ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMAState, TMATransition, RunState, @condition
+export ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMATransition, RunState, @condition
 
-const Event = NamedTuple{(:time,:symbol), Tuple{Float64, Symbol}}
+const Event = Tuple{Float64, Symbol}
 
-Base.convert(::Type{Event}, ev::Tuple) = (time=ev[1], symbol=ev[2])
-
-const TMAState = Vector
-mutable struct RunState
+mutable struct RunState{TMAState}
     state::TMAState
     clocks::Vector{Float64}
 end
 
-Base.:(==)(s1::RunState, s2::RunState) = s1.state==s2.state && s1.clocks==s2.clocks
+Base.:(==)(s1::RunState{TMAState}, s2::RunState{TMAState}) where {TMAState} = s1.state==s2.state && s1.clocks==s2.clocks
 
 abstract type ClockCondition end
 
@@ -53,7 +50,7 @@ end
 (c::ClockAndCondition)(clocks) = c.cond1(clocks) && c.cond2(clocks)
 
 
-struct TMATransition
+struct TMATransition{TMAState}
     s::TMAState
     s′::TMAState
     a::Symbol
@@ -61,18 +58,18 @@ struct TMATransition
     δ::ClockCondition
 end
 
-struct TMA
+struct TMA{TMAState}
     Σ::Vector{TMAState}
     Σ′::Vector{TMAState}
     num_clocks::Int
-    E::Vector{TMATransition}
+    E::Vector{TMATransition{TMAState}}
     s0::TMAState
 end
 
-struct TMARun
-    tma::TMA
+struct TMARun{TMAState}
+    tma::TMA{TMAState}
     inputs::Vector{Event}
-    X::RunState
+    X::RunState{TMAState}
 end
 TMARun(tma,inputs)=TMARun(tma,inputs,RunState(tma.s0, zeros(Float64,tma.num_clocks)))
 
@@ -132,9 +129,7 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
         return nothing
     end
 
-    inp,i = ret
-    a=inp.symbol
-    t1=inp.time
+    (t1,a),i = ret
 
     dt=t1-t0
     r.X.clocks .+= dt
