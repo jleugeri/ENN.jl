@@ -1,6 +1,6 @@
 module TimedAutomata
 
-export ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMATransition, RunState, @condition
+export ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMATransition, RunState, parse_condition, @condition
 
 const Event = Tuple{Float64, Symbol}
 
