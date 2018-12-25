@@ -70,8 +70,9 @@ struct TMARun{TMAState}
     tma::TMA{TMAState}
     inputs::Vector{Event}
     X::RunState{TMAState}
+    drop_repetitions::Bool
 end
-TMARun(tma,inputs)=TMARun(tma,inputs,RunState(deepcopy(tma.s0), zeros(Float64,tma.num_clocks)))
+TMARun(tma,inputs; drop_repetitions=false)=TMARun(tma,inputs,RunState(deepcopy(tma.s0), zeros(Float64,tma.num_clocks)), drop_repetitions)
 
 
 function parse_condition(expr)
@@ -126,21 +127,30 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
         return (t0,deepcopy(r.X)),(0.0, 1) 
     end
 
-    ret=iterate(r.inputs,i)
-    
-    if ret == nothing
-        return nothing
-    end
+    keep_going = true
+    while keep_going
+        ret=iterate(r.inputs,i)
+        
+        if ret == nothing
+            return nothing
+        end
 
-    (t1,a),i = ret
+        (t1,a),i = ret
 
-    dt=t1-t0
-    r.X.clocks .+= dt
-    for e in r.tma.E
-        if a==e.a && r.X.state == e.s && e.δ(r.X.clocks)
-            r.X.clocks[e.λ] .= 0
-            r.X.state = deepcopy(e.s′)
-            break
+        dt=t1-t0
+        r.X.clocks .+= dt
+        for e in r.tma.E
+            if a==e.a && r.X.state == e.s && e.δ(r.X.clocks)
+                r.X.clocks[e.λ] .= 0
+                r.X.state = deepcopy(e.s′)
+
+                keep_going = false
+                break
+            end
+        end
+
+        if ~r.drop_repetitions
+            keep_going = false
         end
     end
     return (t1,deepcopy(r.X)),(t1,i)
