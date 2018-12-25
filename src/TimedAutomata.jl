@@ -9,7 +9,7 @@ mutable struct RunState{TMAState}
     clocks::Vector{Float64}
 end
 
-Base.:(==)(s1::RunState{TMAState}, s2::RunState{TMAState}) where {TMAState} = s1.state==s2.state && s1.clocks==s2.clocks
+Base.:(==)(s1::RunState{TMAState}, s2::RunState{TMAState}) where {TMAState} = all(s1.state .== s2.state) && all(s1.clocks .≈ s2.clocks)
 
 abstract type ClockCondition end
 
@@ -71,7 +71,7 @@ struct TMARun{TMAState}
     inputs::Vector{Event}
     X::RunState{TMAState}
 end
-TMARun(tma,inputs)=TMARun(tma,inputs,RunState(tma.s0, zeros(Float64,tma.num_clocks)))
+TMARun(tma,inputs)=TMARun(tma,inputs,RunState(deepcopy(tma.s0), zeros(Float64,tma.num_clocks)))
 
 
 function parse_condition(expr)
@@ -120,7 +120,10 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
     t0,i = t0i
 
     if i==0
-        return r.X,(0.0, 1) 
+        r.X.state = deepcopy(r.tma.s0)
+        r.X.clocks = zeros(Float64,r.tma.num_clocks)
+
+        return (t0,deepcopy(r.X)),(0.0, 1) 
     end
 
     ret=iterate(r.inputs,i)
@@ -136,11 +139,11 @@ function Base.iterate(r::TMARun, t0i=(0.0,0))
     for e in r.tma.E
         if a==e.a && r.X.state == e.s && e.δ(r.X.clocks)
             r.X.clocks[e.λ] .= 0
-            r.X.state = e.s′
+            r.X.state = deepcopy(e.s′)
             break
         end
     end
-    return RunState(copy(r.X.state),copy(r.X.clocks)),(t1,i)
+    return (t1,deepcopy(r.X)),(t1,i)
 end
 
 Base.length(r::TMARun) = length(r.inputs)+1

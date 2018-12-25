@@ -27,10 +27,10 @@ testrun = TMARun(
     ])
 
 
-@test collect(testrun) == [
+@test all(collect(last.(testrun)) .== [
+    RunState([0, 0], [0.0, 0.0]),
+    RunState([0, 1], [0.0, 2.0]),
+    RunState([1, 0], [0.7, 0.0]),
+    RunState([1, 1], [0.8, 0.1]),
     RunState([0, 0], [3.0, 2.3]),
-    RunState([0, 1], [3.0, 2.3]),
-    RunState([1, 0], [3.0, 2.3]),
-    RunState([1, 1], [3.0, 2.3]),
-    RunState([0, 0], [3.0, 2.3])
-]
+])
