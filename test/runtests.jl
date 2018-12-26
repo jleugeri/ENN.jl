@@ -22,9 +22,11 @@ testrun = TMARun(
     [
         (2.0,:a),
         (2.7,:b),
+        (2.8,:b),
         (2.8,:c),
         (5.0,:d)
-    ])
+    ];
+    drop_repetitions=true)
 
 
 @test all(collect(last.(testrun)) .== [

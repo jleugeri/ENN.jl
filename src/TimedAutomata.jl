@@ -143,6 +143,8 @@ function Base.iterate(r::TMARun{S,DropRepetitions}, t0i=(0.0,0)) where {S,DropRe
         (t1,a),i = ret
 
         dt=t1-t0
+        t0=t1
+        
         r.X.clocks .+= dt
         for e in r.tma.E
             if a==e.a && r.X.state == e.s && e.δ(r.X.clocks)
