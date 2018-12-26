@@ -1,6 +1,6 @@
 module TimedAutomata
-
-export ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMATransition, RunState, parse_condition, @condition
+using LightGraphs
+export ClockAndCondition, ClockClockRefCondition, ClockCondition, ClockConstRefCondition, ClockNegCondition, ClockNoCondition, TMA, TMARun, TMATransition, RunState, parse_condition, @condition, to_graph
 
 const Event = Tuple{Float64, Symbol}
 
@@ -144,7 +144,7 @@ function Base.iterate(r::TMARun{S,DropRepetitions}, t0i=(0.0,0)) where {S,DropRe
 
         dt=t1-t0
         t0=t1
-        
+
         r.X.clocks .+= dt
         for e in r.tma.E
             if a==e.a && r.X.state == e.s && e.δ(r.X.clocks)
@@ -163,5 +163,27 @@ function Base.iterate(r::TMARun{S,DropRepetitions}, t0i=(0.0,0)) where {S,DropRe
     return (t1,deepcopy(r.X)),(t1,i)
 end
 
+
+function to_graph(tma::TMA{TMAState}) where TMAState
+    edges_source = TMAState[e.s for e ∈ tma.E]
+    edges_target = TMAState[e.s′ for e ∈ tma.E]
+
+    edges_symbols = Symbol[]
+    edges_clocks = Vector{Int}[]
+    edges_constraints = ClockCondition[]
+
+    states_u = unique([edges_source;edges_target])
+
+    l = LightGraphs.SimpleDiGraph(length(states_u))
+
+    for (i,(s,t)) ∈ enumerate(zip(edges_source, edges_target))
+        add_edge!(l, findfirst(x->x==s, states_u), findfirst(x->x==t, states_u))
+        push!(edges_symbols,tma.E[i].a)
+        push!(edges_clocks,tma.E[i].λ)
+        push!(edges_constraints,tma.E[i].δ)
+    end
+
+    return (graph=l, states=states_u, symbols=edges_symbols, clock_resets=edges_clocks, clock_constraints=edges_constraints)
+end
 
 end
