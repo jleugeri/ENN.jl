@@ -170,7 +170,7 @@ function to_graph(tma::TMA{TMAState}) where TMAState
 
     states_u = unique([edges_source;edges_target])
     edges_source_id = indexin(edges_source, states_u)
-    edges_target_id = indexin(edges_source, states_u)
+    edges_target_id = indexin(edges_target, states_u)
 
     edges = Dict{Pair{Int,Int},TMATransition{TMAState}}()
     vertices = Vector{TMAState}(undef, length(states_u))
