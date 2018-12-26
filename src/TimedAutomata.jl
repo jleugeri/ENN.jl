@@ -168,22 +168,25 @@ function to_graph(tma::TMA{TMAState}) where TMAState
     edges_source = TMAState[e.s for e ∈ tma.E]
     edges_target = TMAState[e.s′ for e ∈ tma.E]
 
-    edges_symbols = Symbol[]
-    edges_clocks = Vector{Int}[]
-    edges_constraints = ClockCondition[]
-
     states_u = unique([edges_source;edges_target])
+    edges_source_id = indexin(edges_source, states_u)
+    edges_target_id = indexin(edges_source, states_u)
+
+    edges = Dict{Pair{Int,Int},TMATransition{TMAState}}()
+    vertices = Vector{TMAState}(undef, length(states_u))
 
     l = LightGraphs.SimpleDiGraph(length(states_u))
 
-    for (i,(s,t)) ∈ enumerate(zip(edges_source, edges_target))
-        add_edge!(l, findfirst(x->x==s, states_u), findfirst(x->x==t, states_u))
-        push!(edges_symbols,tma.E[i].a)
-        push!(edges_clocks,tma.E[i].λ)
-        push!(edges_constraints,tma.E[i].δ)
+    for (i,(s,t)) ∈ enumerate(zip(edges_source_id, edges_target_id))
+        add_edge!(l, s, t)
+        edges[s=>t] = tma.E[i]
     end
 
-    return (graph=l, states=states_u, symbols=edges_symbols, clock_resets=edges_clocks, clock_constraints=edges_constraints)
+    for i ∈ eachindex(vertices)
+        vertices[i] = states_u[i]
+    end
+
+    return (graph=l, edges=edges, vertices=vertices)
 end
 
 end

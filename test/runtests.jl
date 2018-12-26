@@ -1,5 +1,5 @@
 
-using TimedAutomata, Test, GraphPlot, Compose
+using TimedAutomata, Test, LightGraphs, GraphPlot, Compose
 
 tma = TMA(
     [
@@ -41,4 +41,4 @@ testrun = TMARun(
 
 g = to_graph(tma)
 
-draw(SVG("test,svg", 16cm, 16cm), gplot(g.graph; nodelabel=string.(g.states), edgelabel=string.(g.symbols)))
+draw(SVG("test,svg", 16cm, 16cm), gplot(g.graph; nodelabel=string.(g.vertices), edgelabel=[string(g.edges[Pair(e)].a) for e ∈ edges(g.graph)]))
