@@ -1,103 +1,18 @@
 module TimedAutomata
 using LightGraphs, Base.Iterators, IntervalArithmetic
-export ClockRegion, implies, MA,TMA,MATransition,TMATransition, implies, collect_constants, to_graph, untime, language
+export TimeSlice,TimePoint,TimeInterval,TimeLeftHalfLine,TimeRightHalfLine, ClockRegion, implies, collect_constants, @Clk_str,
+    MA,TMA,MATransition,TMATransition, to_graph, untime, language
 #, TMARun, RunState
 
 @enum ORDER_RELATIONSHIP order_less=1 order_less_equal=2 order_equal=3 order_larger=4 order_larger_equal=5
 
+#const TimeSlice{T} = Union{Nothing,T,Tuple{T,T},Tuple{T,Nothing}}
+
 ##########################
 #    Clock Conditions    #
 ##########################
+include("clock_constraints.jl")
 
-struct ClockRegion{N,T}
-    slices::Vector{Union{Nothing,T,Tuple{T,T},Tuple{T,Nothing}}}
-    order_constraints::Dict{Tuple{Int,Int},ORDER_RELATIONSHIP}
-end
-
-function ClockRegion(T::Type, slices::Vector,order::Vector{Int})
-    num_clocks = length(order)
-    
-    _order(a,b) = if a<b
-        order_less
-    elseif a==b
-        order_equal
-    else
-        order_larger
-    end
-
-    cnd = Dict(((i,j) => _order(order[i],order[j]) for i ∈ 1:num_clocks for j ∈ 1:num_clocks)...)
-    return ClockRegion{num_clocks,T}(slices,cnd)
-end
-
-Base.:⊆(r1::Nothing,r2::T) where T = false
-Base.:⊆(r1::T,r2::Nothing) where T = true
-Base.:⊆(r1::Tuple,r2::Real) = false
-Base.:⊆(r1::T,r2::T) where T<:Real = r1==r2
-Base.:⊆(r1::T,r2::Tuple{T,T}) where T = r2[1] < r1 < r2[2]
-Base.:⊆(r1::T,r2::Tuple{T,Nothing}) where T = r2[1] < r1
-Base.:⊆(r1::Tuple{T1,T2},r2::Tuple{T3,T4}) where {T1,T2,T3,T4} = r2[1] <= r1[1] && ((T4 == Nothing) || (T2 <: Real && r1[2] <= r2[2]))
-
-"""Does the constraint required by region c2 always hold within region c1?"""
-function implies(c1::ClockRegion{N},c2::ClockRegion{N}) where N
-    for i ∈ 1:N
-        v1 = c1.slices[i]
-        v2 = c2.slices[i]
-        
-        if ~(v1⊆v2)
-            return false
-        end
-    end
-
-    for (key,val2) ∈ pairs(c2.order_constraints)
-        if ~haskey(c1.order_constraints, key)
-            return false
-        end
-
-        val1 = c1.order_constraints[key]    
-    
-        if ~(((val1==order_less) && (val2==order_less || val2==order_less_equal)) ||
-            ((val1==order_less_equal) && (val2==order_less_equal)) ||
-            ((val1==order_equal) && (val2==order_equal)) ||
-            ((val1==order_larger) && (val2==order_larger || val2==order_larger_equal)) ||
-            ((val1==order_larger_equal) && (val2==order_larger_equal)))
-            return false
-        end
-    end
-    return true
-end
-
-#=
-function parse_condition(expr)
-    if isa(expr, Bool) && expr
-        ClockNoCondition()
-    elseif isa(expr, Expr) && expr.head == :call
-        if expr.args[1] == :~
-            ClockNegCondition(parse_condition(expr.args[2]))
-        elseif expr.args[1] ∈ (:<,:>,:(==), :(<=), :(>=))
-            if isa(expr.args[2],Expr) && isa(expr.args[3],Expr) && expr.args[2].head == :ref && expr.args[3].head == :ref && expr.args[2].args[1] == :c &&  expr.args[3].args[1] == :c
-                ClockClockRefCondition{expr.args[1]}(expr.args[2].args[2], expr.args[3].args[2])
-            elseif isa(expr.args[2],Expr) && expr.args[2].head == :ref && isa(expr.args[3], Real) && expr.args[2].args[1] == :c
-                ClockConstRefCondition{expr.args[1]}(expr.args[2].args[2], expr.args[3])
-            else
-                error("LHS must be reference to clock")
-            end
-        else
-            error("Invalid OP $(expr.args[1]).")
-        end
-    elseif isa(expr, Expr) && expr.head == :(&&)
-        c1 = parse_condition(expr.args[1])
-        c2 = parse_condition(expr.args[2])
-
-        ClockAndCondition(c1, c2)
-    #else
-    end
-end
-
-
-macro condition(expr)
-    return parse_condition(expr)
-end
-=#
 
 ##########################
 #     Timed Automata     #
@@ -118,16 +33,6 @@ struct TMA{TMAState}
     s0::TMAState
 end
 
-function collect_constants!(c::ClockRegion{N,T}, counter::Vector) where {N,T}
-    for (i,s) ∈ enumerate(c.slices)
-        if isa(s,Real) || isa(s,Tuple{Real,Real})
-            push!(counter[i], s...)
-        elseif isa(s,Tuple{Real,Nothing})
-            push!(counter[i], s[1])
-        end
-    end
-    counter
-end
 
 mutable struct RunState{TMAState}
     state::TMAState
@@ -155,7 +60,7 @@ end
 
 function collect_constants(tma::TMA) 
     T = typeof(tma.I).parameters[2].parameters[2]
-    res=[Set{T}() for i ∈ 1:tma.num_clocks]
+    res=[Set{T}(0) for i ∈ 1:tma.num_clocks]
     
     for i ∈ values(tma.I)
         collect_constants!(i, res)
@@ -176,15 +81,19 @@ function untime(m::TMA{TMAState}) where TMAState
     clock_constants = collect_constants(m)
 
     clock_scaler = lcm(denominator.(reduce(union,clock_constants))...)//gcd(numerator.(reduce(union,clock_constants))...)
+    if denominator(clock_scaler)==0
+        clock_scaler = 0//1
+    end
+
     c_max = Int.(maximum.(clock_constants) .* clock_scaler)
 
     r_max = 2 .* (c_max .+ 1)
 
     function condition_from_region((r,o))
-        ts = Vector{Union{Int,Tuple{Int,Int},Tuple{Int,Nothing}}}(undef, num_clocks)
+        ts = Vector{TimeSlice}(undef, num_clocks)
         for clk ∈ eachindex(r)
             (c,i) = divrem(r[clk]-1, 2)
-            ts[clk] = i==0 ? c : (c<c_max[clk] ? (c,c+1) : (c,nothing))
+            ts[clk] = i==0 ? TimePoint{Int}(c) : (c<c_max[clk] ? TimeInterval{Int,true,true}(c,c+1) : TimeRightHalfLine{Int,true}(c))
         end
         return ClockRegion(Int,ts,o)
     end
@@ -365,6 +274,7 @@ function Base.iterate(r::TMARun{S,DropRepetitions}, t0i=(0.0,0)) where {S,DropRe
     end
     return (t1,deepcopy(r.X)),(t1,i)
 end
+
 =#
 
 function to_graph(ma::MA{MAState}) where MAState
@@ -400,7 +310,7 @@ function to_graph(tma::TMA{TMAState}) where TMAState
     end
 
     T = typeof(tma.I).parameters[2].parameters[2]
-    return (graph=l, edges=edges, vertices=(x->(x,get(tma.I, x, ClockRegion(T,fill(nothing,tma.num_clocks),zeros(Int,tma.num_clocks))))).(states_u))
+    return (graph=l, edges=edges, vertices=(x->(x,get(tma.I, x, ClockRegion{tma.num_clocks,T}()))).(states_u))
 end
 
 end

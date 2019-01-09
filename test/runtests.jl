@@ -34,12 +34,12 @@ tma = TMA(
     [3],
     1, 
     Dict(
-        (0,:msg)=>[TMATransition(1,[1],ClockRegion(Int,[nothing],[1]))],
-        (1,:msg)=>[TMATransition(1,[1],ClockRegion(Int,[1],[1])),TMATransition(1,[1],ClockRegion(Int,[(1,nothing)],[1])),TMATransition(2,[1],ClockRegion(Int,[(0,1)],[1]))],
-        (2,:alarm)=>[TMATransition(3,Int[],ClockRegion(Int,[nothing],[1]))]
+        (0,:msg)=>[TMATransition(1,[1],ClockRegion{1,Int}())],
+        (1,:msg)=>[TMATransition(1,[1],ClockRegion{1,Int}(1=>Clk"1")),TMATransition(1,[1],ClockRegion{1,Int}(1=>Clk"[1,∞)")),TMATransition(2,[1],ClockRegion{1,Int}(1=>Clk"(0,1)"))],
+        (2,:alarm)=>[TMATransition(3,Int[],ClockRegion{1,Int}())]
     ),
     #Dict{Int,ClockRegion{1,Int}}(),
-    Dict(2=>ClockRegion(Int,[(0,1)],[1])),
+    Dict(2=>ClockRegion{1,Int}(1=>Clk"(0,1)")),
     0
 )
 
