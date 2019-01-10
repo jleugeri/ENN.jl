@@ -1,12 +1,8 @@
 module TimedAutomata
-using LightGraphs, Base.Iterators, IntervalArithmetic
-export TimeSlice,TimePoint,TimeInterval,TimeLeftHalfLine,TimeRightHalfLine, ClockRegion, implies, collect_constants, @Clk_str,
-    MA,TMA,MATransition,TMATransition, to_graph, untime, language
+using LightGraphs, GraphPlot, Base.Iterators
+export TimeSlice,TimePoint,TimeInterval,TimeLeftHalfLine,TimeRightHalfLine, ClockRegion, collect_constants, @Clk_str,
+    MA,TMA,MATransition,TMATransition, to_graph, untime, language, ⊆, ==, PartialOrder, TotalOrder, OrderRelation, gplot
 #, TMARun, RunState
-
-@enum ORDER_RELATIONSHIP order_less=1 order_less_equal=2 order_equal=3 order_larger=4 order_larger_equal=5
-
-#const TimeSlice{T} = Union{Nothing,T,Tuple{T,T},Tuple{T,Nothing}}
 
 ##########################
 #    Clock Conditions    #
@@ -33,17 +29,17 @@ struct TMA{TMAState}
     s0::TMAState
 end
 
-
+#= 
 mutable struct RunState{TMAState}
     state::TMAState
     clocks::Vector{Float64}
 end
 
 Base.:(==)(s1::RunState{TMAState}, s2::RunState{TMAState}) where {TMAState} = all(s1.state .== s2.state) && all(s1.clocks .≈ s2.clocks)
-
+ =#
 
 ##########################
-#    Untimed Automata    #
+#   Nontimed Automata    #
 ##########################
 struct MATransition{MAState}
     s::MAState
@@ -75,98 +71,104 @@ function collect_constants(tma::TMA)
     return res
 end
 
+##########################
+#  Untiming Operations   #
+##########################
+struct UMAState{TMAState, N, T}
+    tma_state::TMAState
+    clock_region::ClockRegion{N,T}
+end
+Base.:(==)(s1::UMAState{TMAState,N,T},s2::UMAState{TMAState,N,T}) where{TMAState,N,T} = (s1.tma_state == s2.tma_state) && (s1.clock_region == s2.clock_region)
+
 function untime(m::TMA{TMAState}) where TMAState
     num_clocks = m.num_clocks
     
-    clock_constants = collect_constants(m)
+    # determine limits and scaling of the clocks
 
+    clock_constants = collect_constants(m)
     clock_scaler = lcm(denominator.(reduce(union,clock_constants))...)//gcd(numerator.(reduce(union,clock_constants))...)
     if denominator(clock_scaler)==0
         clock_scaler = 0//1
     end
-
     c_max = Int.(maximum.(clock_constants) .* clock_scaler)
 
-    r_max = 2 .* (c_max .+ 1)
-
-    function condition_from_region((r,o))
-        ts = Vector{TimeSlice}(undef, num_clocks)
-        for clk ∈ eachindex(r)
-            (c,i) = divrem(r[clk]-1, 2)
-            ts[clk] = i==0 ? TimePoint{Int}(c) : (c<c_max[clk] ? TimeInterval{Int,true,true}(c,c+1) : TimeRightHalfLine{Int,true}(c))
+    """Utility function for updating clock regions in the setting with integer constraints"""
+    function update_clock_region(r::ClockRegion, increase=ones(Bool, num_clocks), reset=zeros(Bool,num_clocks))
+        new_slices = deepcopy(r.slices)
+        new_order = deepcopy(r.order.order)
+        for (i,s) ∈ enumerate(r.slices)
+            new_slices[i] = if reset[i]
+                TimePoint(0)
+            elseif increase[i]
+                if isa(s,TimePoint)
+                    if s.val < c_max[i]
+                        TimeInterval{Int,true,true}(s.val,s.val+1)
+                    else
+                        TimeRightHalfLine{Int,true}(s.val)
+                    end
+                elseif isa(s,TimeInterval)
+                    TimePoint(s.val2)
+                elseif isa(s,TimeRightHalfLine)
+                    error("Can't go larger than $(s) for clock $(i)")
+                else
+                    error("$(s) should be TimePoint, TimeInterval or TimeRightHalfLine")
+                end
+            else
+                new_slices[i]
+            end
         end
-        return ClockRegion(Int,ts,o)
-    end
-
-    function update_clocks(state, increase=ones(Bool, num_clocks), reset=zeros(Bool,num_clocks))
-        (r,o) = state
-        r_new = copy(r)
-        o_new = copy(o)
-
-        # increase integral clock part
-        r_new[increase] .+= 1
-
-        # reset integral clock part
-        r_new[reset] .= 1
-
-        # clip clocks to unbounded region
-        idx = r_new .> r_max
-        r_new[idx] .= r_max[idx]
-
+        
         # if the clock region is a constant or out of bounds, treat it as exact and ignore order
-        exact = (r_new .% 2 .== 1)
-        is_out_of_bound = r_new .== r_max
+        exact = isa.(new_slices, TimePoint)
+        is_out_of_bound = isa.(new_slices, TimeRightHalfLine)
         unordered = exact .| is_out_of_bound
 
         # update the order of all of the clocks' fractional parts that are not exactly 0
-        new_ranks = sort!(unique(o_new[.~(unordered)]))
-        o_new[.~(unordered)] .= indexin(o_new[.~(unordered)], new_ranks)
-        o_new[unordered] .= 0
+        new_ranks = sort!(unique(new_order[.~(unordered)]))
+        new_order[.~(unordered)] .= indexin(new_order[.~(unordered)], new_ranks)
+        new_order[unordered] .= 0
 
-        
-        return r_new, o_new
-        
+        return ClockRegion{length(new_slices),Int}(new_slices, TotalOrder(new_order))
     end
 
     # construct region automaton
-    states = Tuple{TMAState, Tuple{Vector{Int},Vector{Int}}}[]
-    accepting_states = Tuple{TMAState, Tuple{Vector{Int},Vector{Int}}}[]
-    edges = Dict{Tuple{Tuple{TMAState, Tuple{Vector{Int},Vector{Int}}},Symbol}, Vector{MATransition{Tuple{TMAState, Tuple{Vector{Int},Vector{Int}}}}}}()
+    states = UMAState{TMAState,num_clocks,Int}[]
+    accepting_states = UMAState{TMAState,num_clocks,Int}[]
+    edges = Dict{Tuple{UMAState{TMAState,num_clocks,Int},Symbol}, Vector{MATransition{UMAState{TMAState,num_clocks,Int}}}}()
 
-    s0 = (m.s0,(ones(Int, num_clocks),zeros(Int, num_clocks)))
+    s0 = UMAState(m.s0,ClockRegion{num_clocks,Int}(fill(TimePoint(0), num_clocks), TotalOrder(zeros(Int,num_clocks))))
 
     queue = [s0]
     while ~isempty(queue)
-        (s,r) = q = popfirst!(queue)
+        q = popfirst!(queue)
+        
         # If we took care of the new state before, move on
         if q ∈ states
             continue
         end
 
-        is_exact = (r[1] .% 2) .== 1
-        largest_rank = maximum(r[2])
-        is_largest_rank = r[2] .== largest_rank
-        is_out_of_bound = r[1] .>= r_max
+        # determine properties of individual clocks
+        is_exact = isa.(q.clock_region.slices,TimePoint)
+        is_largest_rank = ismaximum(q.clock_region.order)
+        is_out_of_bound = isa.(q.clock_region.slices,TimeRightHalfLine)
 
-        cnd = condition_from_region(r)
         # go through all symbol transitions
         for ((s′,a),ee) ∈ pairs(m.E)
-            if s′ == s
+            if s′ == q.tma_state    
                 for e ∈ ee
                     # if there is an symbol transition, reset the corresponding clocks (both integral and fractional part)
                     # check if edge constraint holds within the region
-                    if implies(cnd,e.δ)
+                    if q.clock_region ⊆ e.δ
                         tmp = zeros(Bool, num_clocks)
                         tmp[e.λ] .= true
-                        r′ = update_clocks(r, zeros(Bool,num_clocks),tmp)
-                        q1 = (e.s, r′)
-                        el = get(edges, (q,a), MATransition{Tuple{TMAState, Tuple{Vector{Int},Vector{Int}}}}[])
-                        push!(el, MATransition(q1))
+                        r′ = update_clock_region(q.clock_region, zeros(Bool,num_clocks), tmp)
+                        q′ = UMAState(e.s, r′)
+                        el = get(edges, (q,a), MATransition{UMAState{TMAState,num_clocks,Int}}[])
+                        push!(el, MATransition(q′))
                         edges[(q,a)] = el
-
                         # If we didn't take care of the new state before, put it in the queue
-                        if q1 ∉ states
-                            push!(queue, q1)
+                        if (q′ ∉ states) && (q′ ∉ queue)
+                            push!(queue, q′)
                         end
                     end
                 end
@@ -184,19 +186,19 @@ function untime(m::TMA{TMAState}) where TMAState
                 is_largest_rank
             end
 
-            rsucc = update_clocks(r, increase_clocks)
+            rsucc = update_clock_region(q.clock_region, increase_clocks)
             # time successor is only triggered if invariants allow it
-            if s ∉ keys(m.I) || implies(condition_from_region(rsucc),m.I[s])
-                q1=(s,rsucc)
-                edges[(q,:τ)] = [MATransition(q1)]
-                push!(queue, q1)
+            if q.tma_state ∉ keys(m.I) || rsucc ⊆ m.I[q.tma_state]
+                q′=UMAState(q.tma_state,rsucc)
+                edges[(q,:τ)] = [MATransition(q′)]
+                push!(queue, q′)
             end
         end
-
+        
         # add state to the list
         push!(states, q)
         # if the state is an accepting state, add it
-        if s ∈ m.Σ′
+        if q.tma_state ∈ m.Σ′
            push!(accepting_states, q)
         end
     end
@@ -277,8 +279,8 @@ end
 
 =#
 
-function to_graph(ma::MA{MAState}) where MAState
-    edges = Dict{Pair{Int,Int},Symbol}()
+function to_graph(ma::T) where T<:Union{MA,TMA}
+    edges = Dict{Pair{Int,Int},Tuple{Symbol,Any}}()
     states_u = collect(ma.Σ)
     l = LightGraphs.SimpleDiGraph(length(states_u))
 
@@ -287,30 +289,48 @@ function to_graph(ma::MA{MAState}) where MAState
             s_idx = findfirst(x->x==s,states_u)
             t_idx = findfirst(x->x==e.s,states_u)
             add_edge!(l,s_idx , t_idx)
-            edges[s_idx=>t_idx] = a
+            edges[s_idx=>t_idx] = (a,e)
         end
     end
 
     return (graph=l, edges=edges, vertices=states_u)
 end
 
+function GraphPlot.gplot(ma::MA{UMAState{TMAState,N,T}}) where {TMAState,N,T}
+    g = to_graph(ma)
 
-function to_graph(tma::TMA{TMAState}) where TMAState
-    edges = Dict{Pair{Int,Int},Tuple{Symbol,ClockRegion}}()
-    states_u = collect(deepcopy.(tma.Σ))
-    l = LightGraphs.SimpleDiGraph(length(states_u))
-
-    for ((s,a),ee) ∈ pairs(tma.E)
-        for e ∈ ee
-            s_idx = findfirst(x->x==s,states_u)
-            t_idx = findfirst(x->x==e.s,states_u)
-            add_edge!(l,s_idx , t_idx)
-            edges[s_idx=>t_idx] = (a,e.δ)
-        end
-    end
-
-    T = typeof(tma.I).parameters[2].parameters[2]
-    return (graph=l, edges=edges, vertices=(x->(x,get(tma.I, x, ClockRegion{tma.num_clocks,T}()))).(states_u))
+    tma_states = [v.tma_state for v ∈ g.vertices]
+    clock_regions = [v.clock_region for v ∈ g.vertices]
+    tma_states_u = unique(tma_states)
+    clock_regions_u = unique(clock_regions)
+    s_id = Vector{Int}(indexin(tma_states,tma_states_u))
+    r_id = Vector{Int}(indexin(clock_regions,clock_regions_u))
+    vertex_labels = ["S$(s)-R$(r)" for (s,r) ∈ zip(s_id, r_id)]
+    edge_labels = ["$(first(g.edges[Pair(e)]))" for e ∈ edges(g.graph)]
+    
+    gplot(
+        g.graph, Vector{Float64}(r_id), Vector{Float64}(s_id);
+        nodelabel=vertex_labels,
+        edgelabel=edge_labels
+    )
 end
+
+function GraphPlot.gplot(m::Union{TMA,MA})
+    g = to_graph(m)
+
+    states_u = unique(g.vertices)
+    s_id = indexin(g.vertices,states_u)
+    
+    vertex_labels = ["S$(s)" for s ∈ s_id]
+    edge_labels = ["$(first(g.edges[Pair(e)]))" for e ∈ edges(g.graph)]
+    
+    gplot(
+        g.graph;
+        nodelabel=vertex_labels,
+        edgelabel=edge_labels
+    )
+end
+
+
 
 end
