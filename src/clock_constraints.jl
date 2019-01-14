@@ -23,7 +23,11 @@ end
 @inline comp(::Val{true},v1,v2) = v1 <= v2
 @inline comp(::Val{false},v1,v2) = v1 < v2
 
-Base.hash(::TimeSlice) = 0 # TODO: implement actual hashing
+Base.hash(t::TimePoint{T}) where T= hash((hash(TimePoint),hash(T),hash(t.val)))
+Base.hash(t::TimeUnconstrained{T}) where T = hash((hash(TimeUnconstrained),hash(T)))
+Base.hash(t::TimeInterval{T,OL,OR}) where {T,OL,OR} = hash((hash(TimeInterval),hash(T),hash(OL),hash(OR),hash(t.val1),hash(t.val2)))
+Base.hash(t::TimeRightHalfLine{T,OL}) where {T,OL} = hash((hash(TimeRightHalfLine),hash(T),hash(OL),hash(t.val1)))
+Base.hash(t::TimeLeftHalfLine{T,OR}) where {T,OR} = hash((hash(TimeLeftHalfLine),hash(T),hash(OR),hash(t.val2)))
 Base.:(==)(::TimeSlice,::TimeSlice) = false
 Base.:(==)(r1::TimePoint,r2::TimePoint) = r1.val==r2.val
 Base.:(==)(r1::TimeInterval{T,OL,OR},r2::TimeInterval{T,OL,OR}) where {T,OL,OR} = (r1.val1==r2.val1) && (r1.val2==r2.val2)
@@ -150,9 +154,9 @@ else
 end
 
 
-Base.hash(::OrderRelation) = 0 #TODO: implement actual hashing
+Base.hash(o::TotalOrder{N}) where N = hash((hash(TotalOrder),hash(N),hash(o.order)))
 Base.:(==)(o1::TotalOrder,o2::TotalOrder) = all(o1.order .== o2.order)
-Base.:(==)(o1::OrderRelation,o2::OrderRelation) = (o1 ⊆ o2) && (o2 ⊆ o1)
+#Base.:(==)(o1::OrderRelation,o2::OrderRelation) = (o1 ⊆ o2) && (o2 ⊆ o1)
 
 function Base.:⊆(o1::OrderRelation{N},o2::OrderRelation{N}) where N
     # check if each ordering of pairs in o1 is *equally or more specific* than (and compatible with) the corresponding ordering in o2
@@ -197,7 +201,7 @@ function ClockRegion{num_clocks,T}(v::Pair{Int,<:TimeSlice{T}}...;order=PartialO
 end
 
 Base.:(==)(c1::ClockRegion{N},c2::ClockRegion{N}) where N = all(c1.slices .== c2.slices) && (c1.order == c2.order)
-Base.hash(r::ClockRegion) = hash((hash(ClockRegion),hash(r.slices),hash(r.order)))
+Base.hash(r::ClockRegion{N,T}) where {N,T} = hash((hash(ClockRegion),hash(N),hash(T),hash(r.slices),hash(r.order)))
 
 """Check if the constraints of clock region 1 are compatible with, yet more specific than the constraints of clock region 2"""
 function Base.:⊆(c1::ClockRegion{N},c2::ClockRegion{N}) where N

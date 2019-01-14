@@ -140,6 +140,25 @@ tma = TMA(
 @test collect_constants(tma) == [Set((1//1,)),Set((2//1,))]
 =#
 
+ma = MA(
+    [
+        0,
+        1,
+        2
+    ],
+    [0],
+    Dict(
+        0=>[MATransition(1,:a),MATransition(2,:b)],
+        1=>[MATransition(2,:a),MATransition(0,:b)],
+        2=>[MATransition(0,:a),MATransition(1,:b)],
+    ),
+    0
+)
+
+L = language(ma)
+
+
+
 tma = TMA(
     [
         0,
@@ -150,9 +169,9 @@ tma = TMA(
     [3],
     1, 
     Dict(
-        (0,:msg)=>[TMATransition(1,[1],ClockRegion{1,Int}())],
-        (1,:msg)=>[TMATransition(1,[1],ClockRegion{1,Int}(1=>Clk"1")),TMATransition(1,[1],ClockRegion{1,Int}(1=>Clk"[1,∞)")),TMATransition(2,[1],ClockRegion{1,Int}(1=>Clk"(0,1)"))],
-        (2,:alarm)=>[TMATransition(3,Int[],ClockRegion{1,Int}())]
+        0=>[TMATransition(1,:msg,[1],ClockRegion{1,Int}())],
+        1=>[TMATransition(1,:msg,[1],ClockRegion{1,Int}(1=>Clk"1")),TMATransition(1,:msg,[1],ClockRegion{1,Int}(1=>Clk"[1,∞)")),TMATransition(2,:msg,[1],ClockRegion{1,Int}(1=>Clk"(0,1)"))],
+        2=>[TMATransition(3,:alarm,Int[],ClockRegion{1,Int}())]
     ),
     #Dict{Int,ClockRegion{1,Int}}(),
     Dict(2=>ClockRegion{1,Int}(1=>Clk"(0,1)")),
@@ -162,15 +181,13 @@ tma = TMA(
 @test collect_constants(tma) == [Set([0,1])]
 
 ma = untime(tma)
+draw(SVG("test_untimed.svg", 16cm, 16cm), gplot(ma))
 
-L = language(ma, 20)
-println.(L)
+L = language(ma)
+println(repr(L))
 
-tg = to_graph(tma)
-#ug = to_graph(ma)
 
 draw(SVG("test_timed.svg", 16cm, 16cm), gplot(tma))
-draw(SVG("test_untimed.svg", 16cm, 16cm), gplot(ma))
 
 #= 
 for s ∈ ma.Σ
