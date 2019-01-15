@@ -2,7 +2,7 @@ module TimedAutomata
 using LightGraphs, GraphPlot, Base.Iterators
 export TimeSlice,TimePoint,TimeInterval,TimeLeftHalfLine,TimeRightHalfLine, ClockRegion, collect_constants, @Clk_str,
     MA,TMA,MATransition,TMATransition, to_graph, untime, language, ⊆, ==, PartialOrder, TotalOrder, OrderRelation, gplot,
-    RegularExpression, RegAtom, RegUnion, RegConjunction, RegStar, RegEmpty, ∪, *, repr, substitute
+    RegularExpression, RegAtom, RegUnion, RegConjunction, RegStar, RegEmpty, ∪, *, repr, substitute, reachable_states, prune
 #, TMARun, RunState
 
 ##########################

@@ -156,7 +156,8 @@ ma = MA(
 )
 
 L = language(ma)
-
+println("Language of simple, timeless automaton:")
+println(repr(L))
 
 
 tma = TMA(
@@ -184,6 +185,7 @@ ma = untime(tma)
 draw(SVG("test_untimed.svg", 16cm, 16cm), gplot(ma))
 
 L = language(ma)
+println("Language of untimed automaton")
 println(repr(L))
 
 

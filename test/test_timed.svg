@@ -14,86 +14,86 @@
   </marker>
 </defs>
 <g stroke-width="1.5" fill="#000000" fill-opacity="0.000" stroke="#D3D3D3" id="img-a764de99-1">
-  <g transform="translate(34.79,34.79)">
-    <path fill="none" d="M-15.57,-15.57 L 15.57 15.57" class="primitive"/>
+  <g transform="translate(124.96,124.96)">
+    <path fill="none" d="M15.81,15.81 L -15.81 -15.81" class="primitive"/>
   </g>
-  <g transform="translate(56.25,56.25)">
+  <g transform="translate(103.26,103.26)">
     <path fill="none" d="M8.33,0 L -8.33 0" class="primitive"/>
   </g>
-  <g transform="translate(80,80)">
-    <path fill="none" d="M-17.86,-17.86 L 17.86 17.86" class="primitive"/>
+  <g transform="translate(79.98,79.98)">
+    <path fill="none" d="M17.39,17.39 L -17.39 -17.39" class="primitive"/>
   </g>
-  <g transform="translate(125.21,125.21)">
-    <path fill="none" d="M-15.57,-15.57 L 15.57 15.57" class="primitive"/>
+  <g transform="translate(35.02,35.02)">
+    <path fill="none" d="M15.79,15.79 L -15.79 -15.79" class="primitive"/>
   </g>
 </g>
 <g stroke-width="1.5" stroke="#D3D3D3" id="img-a764de99-2">
-  <g transform="translate(47.4,47.4)">
-    <path fill="none" d="M0.14,-3.09 L 2.95 2.95 -3.09 0.14" class="primitive"/>
+  <g transform="translate(112.11,112.11)">
+    <path fill="none" d="M-0.14,3.09 L -2.95 -2.95 3.09 -0.14" class="primitive"/>
   </g>
-  <g transform="translate(43.74,56.25)">
+  <g transform="translate(90.75,103.26)">
     <path fill="none" d="M-2.09,-2.28 L 4.18 0 -2.09 2.28" class="primitive"/>
   </g>
-  <g transform="translate(94.9,94.9)">
-    <path fill="none" d="M0.14,-3.09 L 2.95 2.95 -3.09 0.14" class="primitive"/>
+  <g transform="translate(65.55,65.55)">
+    <path fill="none" d="M-0.14,3.09 L -2.95 -2.95 3.09 -0.14" class="primitive"/>
   </g>
-  <g transform="translate(137.82,137.82)">
-    <path fill="none" d="M0.14,-3.09 L 2.95 2.95 -3.09 0.14" class="primitive"/>
+  <g transform="translate(22.18,22.18)">
+    <path fill="none" d="M-0.14,3.09 L -2.95 -2.95 3.09 -0.14" class="primitive"/>
   </g>
 </g>
 <g font-size="4" stroke="#000000" stroke-opacity="0.000" fill="#000000" id="img-a764de99-3">
-  <g transform="translate(45.52,45.52)">
+  <g transform="translate(114.11,114.11)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">msg</text>
     </g>
   </g>
-  <g transform="translate(56.25,56.25)">
+  <g transform="translate(103.26,103.26)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">msg</text>
     </g>
   </g>
-  <g transform="translate(91.87,91.87)">
+  <g transform="translate(68.34,68.34)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">msg</text>
     </g>
   </g>
-  <g transform="translate(135.94,135.94)">
+  <g transform="translate(24.18,24.18)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">alarm</text>
     </g>
   </g>
 </g>
 <g stroke-width="0" stroke="#000000" stroke-opacity="0.000" fill="#40E0D0" id="img-a764de99-4">
-  <g transform="translate(13.33,13.33)">
-    <circle cx="0" cy="0" r="8" class="primitive"/>
-  </g>
-  <g transform="translate(56.25,56.25)">
-    <circle cx="0" cy="0" r="8" class="primitive"/>
-  </g>
-  <g transform="translate(103.75,103.75)">
-    <circle cx="0" cy="0" r="8" class="primitive"/>
-  </g>
   <g transform="translate(146.67,146.67)">
+    <circle cx="0" cy="0" r="8" class="primitive"/>
+  </g>
+  <g transform="translate(103.26,103.26)">
+    <circle cx="0" cy="0" r="8" class="primitive"/>
+  </g>
+  <g transform="translate(56.7,56.7)">
+    <circle cx="0" cy="0" r="8" class="primitive"/>
+  </g>
+  <g transform="translate(13.33,13.33)">
     <circle cx="0" cy="0" r="8" class="primitive"/>
   </g>
 </g>
 <g font-size="4" stroke="#000000" stroke-opacity="0.000" fill="#000000" id="img-a764de99-5">
-  <g transform="translate(13.33,13.33)">
+  <g transform="translate(146.67,146.67)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">S1</text>
     </g>
   </g>
-  <g transform="translate(56.25,56.25)">
+  <g transform="translate(103.26,103.26)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">S2</text>
     </g>
   </g>
-  <g transform="translate(103.75,103.75)">
+  <g transform="translate(56.7,56.7)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">S3</text>
     </g>
   </g>
-  <g transform="translate(146.67,146.67)">
+  <g transform="translate(13.33,13.33)">
     <g class="primitive">
       <text text-anchor="middle" dy="0.35em">S4</text>
     </g>
