@@ -1,8 +1,8 @@
 export @arc, @constraint 
 
-macro arc(s1, s2, constraints, messages, resets, TT=:(Rational{Int}))
-    cnst = parse_constraint_set(constraints, TT)
-    esc(:(TAArc{typeof($s1),$TT}($s1, $s2, $cnst, $messages, Set($resets))))
+macro arc(s1, s2, constraints, messages, resets, T=:(Rational{Int}))
+    cnst = parse_constraint_set(constraints, T)
+    esc(:(TAArc{typeof($s1),$T}($s1, $s2, $cnst, $messages, Set($resets))))
 end
 
 
@@ -14,7 +14,7 @@ function parse_constraint_set(expr, T)
         if op ∈ (:≥,:>)
             op = (op == :≥) ? :≤ : :<
             clock1,clock2 = clock2,clock1
-            c = :(-$c) 
+            c = :(-($c)) 
         end
         strict = op ∈ (:<,:>)
         (clock1, clock2, strict,c)
@@ -26,26 +26,25 @@ function parse_constraint_set(expr, T)
         op = e.args[1]
         @assert op ∈ (:<,:≤,:(==),:≥,:>) && length(e.args)==3 error(e) 
         arg1,arg2 = e.args[2:3]    
-        
-        if isa(arg1,Number) || (isa(arg1,Expr) && arg1.args[1] == :(//))
-            arg1,arg2 = arg2,arg1
-        end
-    
-        @assert isa(arg2, Number) || isa(arg2, Symbol) error(e)
-    
-        clock1,clock2 = if isa(arg1, Expr)
-            @assert arg1.head == :call && length(arg1.args)==3 && arg1.args[1] == :- error(e)
-            clock1, clock2 = arg1.args[2:3]
-            @assert typeof(clock1) == typeof(clock2) "Clocks $(clock1) and $(clock2) are not of the same type!"
-            clock1,clock2
+
+        flip = Dict(:< => :>,:≤ => :≥, :> => :<,:≥ => :≤)
+
+        clock1,clock2,op,bound = if isa(arg1,Expr) && arg1.head == :call && length(arg1.args)==3 && arg1.args[1] == :-
+            (arg1.args[2:3]...,op,arg2)
+        elseif isa(arg2,Expr) && arg2.head == :call && length(arg2.args)==3 && arg2.args[1] == :-
+            (arg2.args[2:3]...,flip[op],arg1)
+        elseif isa(arg1,Symbol)
+            (arg1,nothing,op,arg2)
+        elseif isa(arg2,Symbol)
+            (arg2,nothing,flip[op],arg1)
         else
-            arg1,nothing
+            throw(AssertionError(error(e)))
         end
     
         return if   op == :(==)
-            [make_inequality(clock1,clock2,:≤,arg2),make_inequality(clock1,clock2,:≥,arg2)]
+            [make_inequality(clock1,clock2,:≤,bound),make_inequality(clock1,clock2,:≥,bound)]
         else
-            [make_inequality(clock1,clock2,op,arg2)]
+            [make_inequality(clock1,clock2,op,bound)]
         end
     end
     

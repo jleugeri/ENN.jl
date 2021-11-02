@@ -1,205 +1,105 @@
+using TimedAutomata, Test
 
-using TimedAutomata
-using Test, LightGraphs, GraphPlot, Compose, IntervalArithmetic
+@testset "Bounds tests" begin
+    for T in (Rational{Int},Int,Float64)
+        @testset "Time-type $(T)" begin
+            b1 = TABound(true,typemin(T))
+            b2 = TABound(true,-one(T))
+            b3 = TABound(false,-one(T))
+            b4 = TABound(true,zero(T))
+            b5 = TABound(true,one(T))
+            b6 = TABound(false,one(T))
+            b7 = TABound(false,typemax(T))
 
-# Clock related test
+            @test b1≤b2≤b3≤b4≤b5≤b6≤b7
+            @test b1<b2<b3<b4<b5<b6<b7
+            @test !(b6<b5)
 
-@testset "All Tests" begin
-    op1 = PartialOrder(3, (1,2)=>:<, (2,3)=>:(<=))
-    op2 = PartialOrder(3, (2,1)=>:(>=), (1,3)=>:<)
-    op3 = PartialOrder(3, (2,3)=>:<)
-    ot1 = TotalOrder([1,2,3])
-    ot2 = TotalOrder([1,1,2])
-    ot3 = TotalOrder([1,2,2])
+            @test isinf.([b1,b2,b3,b4,b5,b6,b7]) == [true,false,false,false,false,false,true]
+
+            b2.value = typemin(T)
+            @test isinf(b2)
+
+            @test b1==b2 && hash(b1)==hash(b2) && isequal(b1,b2)
+
+            @test_throws ArgumentError b1+b7
+
+            @test b1+b2 == typemin(TABound{T})
+            @test b6+b7 == typemax(TABound{T})
+
+            @test b3+b4 == TABound(true,-one(T))
+            @test b3+b6 == TABound(false,zero(T))
+            @test b5+b6 == TABound(true,one(T)+one(T))
+
+            @test b3-b4 == TABound(true,-one(T))
+            @test b3-b6 == TABound(false,-one(T)-one(T))
+            @test b5-b6 == TABound(true,zero(T))
+
+            @test repr.(Ref("text/plain"),[b1,b2,b3,b4,b5,b6,b7]) == ["-∞","-∞","≤ -$(one(T))","< $(zero(T))","< $(one(T))","≤ $(one(T))","∞"]
+        end
+    end
+end
+
+@testset "Constraint tests" begin
+    c1 = TADiagonalConstraint(:x, :y, TABound(true, 5))
+    c2 = TADiagonalConstraint(:y, :x, TABound(false, -5))
+    c3 = TADiagonalConstraint(nothing, :x, TABound(false, -2))
+    c4 = TADiagonalConstraint(:x, :y, TABound(false, -3))
+    c5 = TADiagonalConstraint(:x, :y, TABound(false, 7))
+    c6 = TADiagonalConstraint(:x, nothing, TABound(false, 5))
+
+    @test repr.(Ref("text/plain"),[c1,c2,c3]) == ["x-y < 5","y-x ≤ -5","x ≥ 2"]
+    @test c1 != c2
+    @test (c1 == !c2) && isequal(c1,!c2) && hash(c1) == hash(!c2)
+
+    tac = TAConstraint([c2,c3],[:x,:y])
+    @test repr("text/plain", tac) == "2 ≤ x ∧ 0 ≤ y ∧ y-x ≤ -5"
+
+    @test !isempty(tac)
+    @test TimedAutomata.close(tac).D[1,2].value==-5
+    @test isempty(tac ∩ c4)
+    @test repr("text/plain", tac ∩ c4) == "∅"
+    @test !isempty(tac ∩ c5 ∩ c6)
+    @test repr("text/plain", tac ∩ c5 ∩ c6) == "x == 5 ∧ y == 0 ∧ y-x == -5"
+
+    @test tac ∩ c5 ∩ c6 == tac ∩ TAConstraint([c5,c6],[:x,:y])
+    @test tac ∩ c5 ∩ c6 ⊆ tac ∩ c5 ⊆ tac
+    @test !(tac ∩ c5 ⊆ tac ∩ c6)
+
+    tac2 = copy(tac)
+    set_clock_list!(tac2, [:y,:x,:z])
+    @test tac2.clocks == [:y,:x,:z] && tac2.D[[3,2],[3,2]] == tac.D[[2,3],[2,3]]
+
+    cs = get_diagonal_constraints(tac)
+    @test [c2,c3] ⊆ cs
+    tac3 = TAConstraint(cs, [:x,:y])
+    @test tac3 == tac && tac ⊆ tac3 && tac3 ⊆ tac
     
-    t1 = Clk"0"
-    t2 = Clk"1"
-    t3 = Clk"3"
-    t4 = Clk"(0,1)"
-    t5 = Clk"[0,2)"
-    t6 = Clk"(0,∞)"
-    t7 = Clk"(∞,1]"
-    t8 = Clk"[0,∞)"
-    t9 = Clk""
-
-    c1 = ClockRegion{3,Int}(1=>Clk"(0,1)", 2=>Clk"[0,1]", 3=>Clk"1"; order=op1)
-    c2 = ClockRegion{3,Int}(1=>Clk"(0,1)", 2=>Clk"[0,1]", 3=>Clk"1"; order=op2)
-    c3 = ClockRegion{3,Int}(1=>Clk"(0,1)", 2=>Clk"[0,1]"; order=op2)
-    c4 = ClockRegion{3,Int}(1=>Clk"(0,1)", 2=>Clk"[0,1)"; order=op2)
-    c5 = ClockRegion{3,Int}(1=>Clk"(0,1)", 2=>Clk"1"; order=op2)
-
-    @testset "Equality tests" begin
-        @test Clk"1" == Clk"1"
-        @test Clk"1" != Clk"0"
-        @test Clk"(0,1]" == Clk"(0,1]"
-        @test Clk"(0,1]" != Clk"(0,1)"
-
-        @test ClockRegion{1,Int64}(TimeSlice{Int64}[TimePoint{Int64}(0)], TotalOrder{1}([0])) == ClockRegion{1,Int64}(TimeSlice{Int64}[TimePoint{Int64}(0)], TotalOrder{1}([0]))
-    end
-
-    @testset "Order Relation tests" begin
-        expected_results = [
-            true  true  false false false false;
-            false true  false false false false;
-            false false true  false false false;
-            true  true  true  true  false false;
-            false true  true  false true  false;
-            true  true  false false false true;
-        ]
-        results = zeros(Bool, size(expected_results))
-
-        for (i,r1) ∈ enumerate((op1,op2,op3,ot1,ot2,ot3))
-            for (j,r2) ∈ enumerate((op1,op2,op3,ot1,ot2,ot3))
-                results[i,j] = (r1 ⊆ r2)
-                @test results[i,j] == expected_results[i,j]
-            end
-        end
-
-        failures = findall(results .!= expected_results)
-        
-        if ~isempty(failures)
-            println("Failed for: $(failures)")
-        end
-    end
-
-    @testset "Time slice tests" begin
-        expected_results = [
-            true  false false false true  false true  true  true;
-            false true  false false true  true  true  true  true;
-            false false true  false false true  false true  true;
-            false false false true  true  true  true  true  true;
-            false false false false true  false false true  true;
-            false false false false false true  false true  true;
-            false false false false false false true  false true;
-            false false false false false false false true  true;
-            false false false false false false false false true;
-        ]
-        results = zeros(Bool, size(expected_results))
-
-        for (i,r1) ∈ enumerate((t1,t2,t3,t4,t5,t6,t7,t8,t9))
-            for (j,r2) ∈ enumerate((t1,t2,t3,t4,t5,t6,t7,t8,t9))
-                results[i,j] = (r1 ⊆ r2)
-                @test results[i,j] == expected_results[i,j]
-            end
-        end
-
-        failures = findall(results .!= expected_results)
-        
-        if ~isempty(failures)
-            println("Failed for: $(failures)")
-        end
-    end
-
-    @testset "Clock Region tests" begin
-        expected_results = [
-            true  true  true false false;
-            false true  true false false;
-            false false true false false;
-            false false true true  false;
-            false false true false true
-        ]
-        results = zeros(Bool, size(expected_results))
-
-
-        for (i,r1) ∈ enumerate((c1,c2,c3,c4,c5))
-            for (j,r2) ∈ enumerate((c1,c2,c3,c4,c5))
-                results[i,j] = (r1 ⊆ r2)
-                @test results[i,j] == expected_results[i,j]
-            end
-        end
-
-        failures = findall(results .!= expected_results)
-
-        if ~isempty(failures)
-            println("Failed for: $(failures)")
-        end
-    end
-
+    tac4 = @constraint (y-x ≤ -5 && y ≥ 0 && 2 ≤ x) Int64
+    set_clock_list!(tac4, [:x,:y])
+    @test tac4 == tac3
 end
 
+@testset "Automata tests" begin
+    states = ["S0", "S1", "S2", "S3"]
+    initial_state = "S0"
+    clocks = [:x,:y,:z]
+    symbols = Set(Symbol[])
+    arcs = Set([
+        @arc("S0","S1",true,TAMessage(),[:z],Int64),
+        @arc("S1","S2",y>2,TAMessage(),[:y],Int64),
+        @arc("S2","S3",x-z<1 && z-y<1,TAMessage(),[],Int64)
+    ])
+    invariants = Dict("S0"=>@constraint x-y==0 && y-z==0 && z-x==0 Int64)
 
-#= 
-tma = TMA(
-    [
-        [0,0],
-        [0,1],
-        [1,0],
-        [1,1]
-    ], 
-    Vector{Int}[], 
-    2, 
-    Dict(
-        ([0,0],:a)=>[TMATransition([0,1],[1],@condition true)],
-        ([0,1],:b)=>[TMATransition([1,0],[2],@condition true)],
-        ([1,0],:c)=>[TMATransition([1,1],Int[],@condition c[1] < 1.0), TMATransition([0,0],Int[],@condition c[1] == 1.0)],
-        ([1,1],:d)=>[TMATransition([0,0],Int[],@condition c[2] > 2.0)],
-    ),
-    Dict([1,0]=>@condition c[1] < 1.0),
-    [0,0]
-)
-@test collect_constants(tma) == [Set((1//1,)),Set((2//1,))]
-=#
+    automaton1 = TA(
+        states,
+        initial_state,
+        clocks,
+        symbols,
+        arcs,
+        invariants
+    )
 
-ma = MA(
-    [
-        0,
-        1,
-        2
-    ],
-    [0],
-    Dict(
-        0=>[MATransition(1,:a),MATransition(2,:b)],
-        1=>[MATransition(2,:a),MATransition(0,:b)],
-        2=>[MATransition(0,:a),MATransition(1,:b)],
-    ),
-    0
-)
-
-L = language(ma)
-println("Language of simple, timeless automaton:")
-println(repr(L))
-
-
-tma = TMA(
-    [
-        0,
-        1,
-        2,
-        3
-    ],
-    [3],
-    1, 
-    Dict(
-        0=>[TMATransition(1,:msg,[1],ClockRegion{1,Int}())],
-        1=>[TMATransition(1,:msg,[1],ClockRegion{1,Int}(1=>Clk"1")),TMATransition(1,:msg,[1],ClockRegion{1,Int}(1=>Clk"[1,∞)")),TMATransition(2,:msg,[1],ClockRegion{1,Int}(1=>Clk"(0,1)"))],
-        2=>[TMATransition(3,:alarm,Int[],ClockRegion{1,Int}())]
-    ),
-    #Dict{Int,ClockRegion{1,Int}}(),
-    Dict(2=>ClockRegion{1,Int}(1=>Clk"(0,1)")),
-    0
-)
-
-@test collect_constants(tma) == [Set([0,1])]
-
-ma = untime(tma)
-draw(SVG("test_untimed.svg", 16cm, 16cm), gplot(ma))
-
-L = language(ma)
-println("Language of untimed automaton")
-println(repr(L))
-
-
-draw(SVG("test_timed.svg", 16cm, 16cm), gplot(tma))
-
-#= 
-for s ∈ ma.Σ
-    println("State $(s):")
-    for ((s′,a),ee) ∈ pairs(ma.E)
-        if s′==s
-            for e ∈ ee
-                println("\t$(a)=>$(e.s)")
-            end
-        end
-    end
+    zg1 = TTS(automaton1)
 end
- =#

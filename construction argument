@@ -1,0 +1,26 @@
+aτb accepted -> aτcτb accepted
+
+Note: Regular expressions have disjunctive normal form
+
+L1: c₁...cₙ constructed -> c₁Σ*c₂Σ*...Σ*cₙ accepted
+    -> L2: c₁...cₙ₋₁Σ constructed -> c₁Σ*c₂Σ*...Σ*cₙ₋₁Σ accepted
+    -> L1 and L2 have the same prefix p until cₙ₋₁, but L2 accepts every symbol after, whereas L1 only accepts cₙ after
+    -> if L2 inhibits L1 at cₙ (L* = (p & -L2)⋅cₙ) then:
+        -> if p is not followed by any symbol, L1 will deactivate
+        -> if p is followed by any symbol other than cₙ, L2 will immediately disable L1
+        -> if p is followed by cₙ, L2 and L* will simultaneously accept cₙ, i.e. inhibition is too late to have an effect
+    -> ergo: L* accepts c₁Σ*c₂Σ*...Σ*cₙ₋₁cₙ only; by induction we could construct c₁c₂...cₙ and therefor any finite word (DNF)
+
+
+a→b→c→d
+      ⤉
+a→b→c→Σ
+
+Σ= a|b|c|d
+
+
+Optimal detector:
+maximize information gain = KL Divergence D(P*||P) = log(|Z*|) where:
+    - the source language is distributed according to P
+    - the accepted language is distributed according to P*
+    - |Z*| is the relative fraction of accepted / possible words

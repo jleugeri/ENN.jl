@@ -64,7 +64,7 @@ end
 struct TTS{State, T}
     states::Vector{Tuple{State,TAConstraint{T}}}
     transitions::Vector{Pair{Tuple{State,TAConstraint{T}}, Tuple{TAMessage, Tuple{State,TAConstraint{T}}}}}
-    function TTS(ta::TA{State,T}) where {State, T} 
-        new{State,T}(TimedAutomata.zone_graph(ta)...)
+    function TTS(ta::TA{State,T}; kwargs...) where {State, T} 
+        new{State,T}(TimedAutomata.zone_graph(ta; kwargs...)...)
     end
 end
