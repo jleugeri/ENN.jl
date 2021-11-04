@@ -31,6 +31,7 @@ function Base.setproperty!(b::TABound{T}, name::Symbol, value) where T
 end
 
 Base.isinf(b::TABound) = b.infinite
+Base.iszero(b::TABound) = iszero(b.value)
 Base.hash(b::TABound) = hash((hash(b.strict), hash(b.value)))
 Base.:(==)(b1::TABound, b2::TABound) = ((b1.value == b2.value) && (b1.strict == b2.strict)) || (isinf(b1) && isinf(b2))
 Base.isequal(b1::TABound, b2::TABound) = b1==b2
@@ -52,11 +53,14 @@ end
 Base.:-(c::TABound) = TABound(c.strict, -c.value)
 Base.:-(c1::TABound, c2::TABound) = c1 + (-c2)
 
-Base.length(b::TABound) = 1
-Base.size(b::TABound) = ()
-Base.iterate(b::TABound, step=1) = step==1 ? (b,nothing) : nothing
+Base.copy(b::TABound) = TABound(b.s,b.v)
+Base.deepcopy(b::TABound) = TABound(deepcopy(b.s),deepcopy(b.v))
+Base.iterate(x::TABound) = (x, nothing)
+Base.iterate(::TABound, ::Any) = nothing
+Base.length(x::TABound) = 1
 Base.Broadcast.broadcastable(b::TABound) = Ref(b)
-Base.similar(b::TABound, ::Type{T}, dims::Dims) where {T} = SparseArray(T, dims)
+Base.adjoint(c::TABound) = c
+
 function Base.show(io::IO, M::MIME"text/plain", b::TABound) 
     s = if isinf(b) && b.value > 0
         "∞"
@@ -69,6 +73,3 @@ function Base.show(io::IO, M::MIME"text/plain", b::TABound)
     end
     print(io, s)
 end
-Base.adjoint(c::TABound) = c
-
-(Base.BroadcastStyle(::Type{TABound{T}}) where T) = Base.Broadcast.DefaultArrayStyle{0}()

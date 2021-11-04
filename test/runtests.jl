@@ -1,5 +1,6 @@
 using TimedAutomata, Test
 
+@testset "All tests" begin
 @testset "Bounds tests" begin
     for T in (Rational{Int},Int,Float64)
         @testset "Time-type $(T)" begin
@@ -53,14 +54,14 @@ end
     @test (c1 == !c2) && isequal(c1,!c2) && hash(c1) == hash(!c2)
 
     tac = TAConstraint([c2,c3],[:x,:y])
-    @test repr("text/plain", tac) == "2 ≤ x ∧ 0 ≤ y ∧ y-x ≤ -5"
+    @test repr("text/plain", tac) == "2 ≤ x\ny-x ≤ -5"
 
     @test !isempty(tac)
     @test TimedAutomata.close(tac).D[1,2].value==-5
     @test isempty(tac ∩ c4)
     @test repr("text/plain", tac ∩ c4) == "∅"
     @test !isempty(tac ∩ c5 ∩ c6)
-    @test repr("text/plain", tac ∩ c5 ∩ c6) == "x == 5 ∧ y == 0 ∧ y-x == -5"
+    @test repr("text/plain", tac ∩ c5 ∩ c6) == "x == 5\ny == 0\ny-x == -5"
 
     @test tac ∩ c5 ∩ c6 == tac ∩ TAConstraint([c5,c6],[:x,:y])
     @test tac ∩ c5 ∩ c6 ⊆ tac ∩ c5 ⊆ tac
@@ -85,7 +86,7 @@ end
     initial_state = "S0"
     clocks = [:x,:y,:z]
     symbols = Set(Symbol[])
-    arcs = Set([
+    arcs = Vector([
         @arc("S0","S1",true,TAMessage(),[:z],Int64),
         @arc("S1","S2",y>2,TAMessage(),[:y],Int64),
         @arc("S2","S3",x-z<1 && z-y<1,TAMessage(),[],Int64)
@@ -102,4 +103,6 @@ end
     )
 
     zg1 = TTS(automaton1)
+end
+
 end

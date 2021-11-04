@@ -13,6 +13,11 @@ function Base.:!(c::TADiagonalConstraint{T}) where T
     TADiagonalConstraint{T}(c.clock2, c.clock1, bound)
 end
 
+Base.iterate(x::TADiagonalConstraint) = (x, nothing)
+Base.iterate(::TADiagonalConstraint, ::Any) = nothing
+Base.length(x::TADiagonalConstraint) = 1
+Base.Broadcast.broadcastable(c::TADiagonalConstraint) = Ref(c)
+Base.adjoint(c::TADiagonalConstraint) = c
 
 function Base.show(io::IO, M::MIME"text/plain", c::TADiagonalConstraint)   
     res = if isnothing(c.clock1) && isnothing(c.clock2) && c.bound.value ≥ 0
@@ -70,9 +75,8 @@ function TAConstraint(terms::Vector{TADiagonalConstraint{T}}, clocks=Symbol[]) w
     TAConstraint(clocks, D)
 end
 
-function Base.copy(ta::TAConstraint{T}) where T
-    TAConstraint(copy(ta.clocks), copy(ta.D))
-end
+Base.copy(ta::TAConstraint) = TAConstraint(ta.clocks,ta.D)
+Base.deepcopy(ta::TAConstraint) = TAConstraint(deepcopy(ta.clocks), deepcopy(ta.D))
 
 function make_dbm(terms::Vector{TADiagonalConstraint{T}}, clocks) where T
     num_clocks = length(clocks)+1
@@ -102,27 +106,31 @@ function Base.intersect!(c::TAConstraint{T}, g::TADiagonalConstraint) where T
     idx1 = isnothing(g.clock1) ? 1 : findfirst(==(g.clock1), c.clocks)+1
     idx2 = isnothing(g.clock2) ? 1 : findfirst(==(g.clock2), c.clocks)+1
     
-    if c.D[idx2,idx1] < -g.bound
+    if c.D[idx2,idx1] < -g.bound || (isinf(g.bound) && g.bound.value < 0)
         c.D[1,1]=TABound(true,-one(T))
-        return
     elseif g.bound < c.D[idx1,idx2]
         c.D[idx1,idx2] = g.bound
         c.D .= min.(c.D, c.D[:,idx1] .+ c.D[idx1,:]', c.D[:,idx2] .+ c.D[idx2,:]')
     end
+    c
 end
+Base.intersect(c::TAConstraint, g::TADiagonalConstraint) = intersect!(deepcopy(c), g)
 
 
-function Base.intersect!(c1::TAConstraint, c2::TAConstraint)
-    c1.D .= min.(c1.D, c2.D)
+function Base.intersect!(c1::TAConstraint, others::TAConstraint...)
+    c1.D .= min.(c1.D, getfield.(others, :D)...)
     close!(c1)
     c1
 end
+Base.intersect(c1::TAConstraint, others::TAConstraint...) = intersect!(deepcopy(c1),others...)
 
-function Base.intersect(c1::TAConstraint, c2)
-    _c1 = copy(c1)
-    intersect!(_c1,c2)
-    _c1
-end
+
+Base.iterate(x::TAConstraint) = (x, nothing)
+Base.iterate(::TAConstraint, ::Any) = nothing
+Base.length(x::TAConstraint) = 1
+Base.Broadcast.broadcastable(c::TAConstraint) = Ref(c)
+Base.adjoint(c::TAConstraint) = c
+
 
 function Base.issubset(c1::TAConstraint, c2::TAConstraint) 
     @assert size(c1.D) == size(c2.D) "Must be of same size, got $(size(c1.D)) and $(size(c2.D))"
@@ -136,7 +144,6 @@ end
 
 Base.hash(c::TAConstraint) = hash((hash(c.clocks), hash(c.D)))
 Base.:(==)(c1::TAConstraint, c2::TAConstraint) = (c1.clocks == c2.clocks) && (c1.D==c2.D)
-
 
 function Base.isempty(c::TAConstraint) 
     D  = c.D
@@ -160,16 +167,16 @@ function Base.isempty(c::TAConstraint)
     return false
 end
 
-function set_clock_list!(ta::TAConstraint{T}, clocks::Vector{Symbol}) where T
+function set_clock_list!(ta::TAConstraint{T}, clocks::Vector{Symbol}; mapping=identity) where T
     D = make_dbm(TADiagonalConstraint{T}[], clocks)
 
-    @assert ta.clocks ⊆ clocks "Not all clocks of the constraint set ($(ta.clocks)') are in the given list of clocks ($(clocks))."
+    @assert mapping.(ta.clocks) ⊆ clocks "Not all clocks of the constraint set ($(ta.clocks)') are in the given list of clocks ($(clocks))."
 
     lookup = Dict(zip(clocks,keys(clocks)))
     for (i,clock1) ∈ enumerate([nothing; ta.clocks])
-        idx1 = isnothing(clock1) ? 1 : lookup[clock1]+1
+        idx1 = isnothing(clock1) ? 1 : lookup[mapping(clock1)]+1
         for (j,clock2) ∈ enumerate([nothing; ta.clocks])
-            idx2 = isnothing(clock2) ? 1 : lookup[clock2]+1
+            idx2 = isnothing(clock2) ? 1 : lookup[mapping(clock2)]+1
             D[idx1,idx2] = ta.D[i,j]
         end
     end
@@ -202,11 +209,13 @@ function Base.show(io::IO, ::MIME"text/plain", b::TAConstraint)
             v2 = isinf(c2) ? (c2.value>0 ? "-∞" : "∞") : "$(-c2.value)"
             if -c2 < c1
                 if isinf(c1) && isinf(c2)
-                    "⊤"
+                    ""
                 else
-                    lhs = isinf(c2) ? "" : "$(v2) $(c2.strict ? :< : :≤) "
+                    lhs = isinf(c2) || (j==1 && iszero(c2.value)) ? "" : "$(v2) $(c2.strict ? :< : :≤) "
                     rhs = isinf(c1) ? "" : " $(c1.strict ?  :< : :≤) $(v1)"
-                    push!(constraints, lhs*"$(clock)"*rhs)
+                    if !isempty(lhs) || !isempty(rhs)
+                        push!(constraints, lhs*"$(clock)"*rhs)
+                    end
                 end
             elseif c1 < -c2
                 push!(constraints, "⊥")
@@ -215,5 +224,5 @@ function Base.show(io::IO, ::MIME"text/plain", b::TAConstraint)
             end
         end
     end
-    print(io, join(constraints, " ∧ "))
+    print(io, join(constraints, "\n"))
 end

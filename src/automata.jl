@@ -18,6 +18,16 @@ function Base.show(io::IO, m::TAMessage)
     print(io, "$(m.symbol)$(dir)")
 end
 
+
+Base.iterate(x::TAMessage) = (x, nothing)
+Base.iterate(::TAMessage, ::Any) = nothing
+Base.length(x::TAMessage) = 1
+Base.Broadcast.broadcastable(c::TAMessage) = Ref(c)
+Base.adjoint(c::TAMessage) = c
+Base.copy(m::TAMessage) = TAMessage(m.direction,m.symbol)
+Base.deepcopy(m::TAMessage) = TAMessage(deepcopy(m.direction),deepcopy(m.symbol))
+
+
 struct TAArc{State,T}
     source::State
     target::State
@@ -26,17 +36,25 @@ struct TAArc{State,T}
     resets::Set{Symbol}
 end
 
+Base.iterate(x::TAArc) = (x, nothing)
+Base.iterate(::TAArc, ::Any) = nothing
+Base.length(x::TAArc) = 1
+Base.Broadcast.broadcastable(c::TAArc) = Ref(c)
+Base.adjoint(c::TAArc) = c
+Base.copy(a::T) where T<:TAArc = T(a.source,a.target,a.guard,a.message,a.resets)
+Base.deepcopy(a::T) where T<:TAArc = T(deepcopy(a.source),deepcopy(a.target),deepcopy(a.guard),deepcopy(a.message),deepcopy(a.resets))
+
 struct TA{State, T}
     states::Vector{State}                    # set of states
     initial_state::State                           # initial state
     clocks::Vector{Symbol}                   # set of clocks - the numeric index is used internally
     symbols::Set{Symbol}                         # alphabet of symbols
-    arcs::Set{TAArc{State,T}}       # arcs of the TA
-    arcs_by_state::DefaultDict{State, Set{TAArc{State,T}}}
+    arcs::Vector{TAArc{State,T}}       # arcs of the TA
+    arcs_by_state::DefaultDict{State, Vector{TAArc{State,T}}}
     invariants::DefaultDict{State, TAConstraint{T}}   # invariants of the TA's states
-    function TA(states::Vector{State},initial_state::State,clocks::Vector{Symbol},symbols::Set{Symbol},arcs::Set{TAArc{State,T}},invariants::Dict{State, TAConstraint{T}}) where {State, T}
+    function TA(states::Vector{State},initial_state::State,clocks::Vector{Symbol},symbols::Set{Symbol},arcs::Vector{TAArc{State,T}},invariants::Dict{State, TAConstraint{T}}) where {State, T}
         # make sure all arcs have the same clock-set
-        arcs_by_state = DefaultDict{State, Set{TAArc{State,T}}}(()->Set{TAArc{State,T}}())
+        arcs_by_state = DefaultDict{State, Vector{TAArc{State,T}}}(()->Vector{TAArc{State,T}}())
 
         for arc ∈ arcs
             set_clock_list!(arc.guard, clocks)
@@ -60,11 +78,27 @@ struct TA{State, T}
     end
 end
 
+Base.copy(ta::T) where T<:TA = TA(ta.states,ta.initial_state,ta.clocks,ta.symbols,ta.arcs,Dict(ta.invariants))
+Base.deepcopy(ta::T) where T<:TA = TA(deepcopy(ta.states),deepcopy(ta.initial_state),deepcopy(ta.clocks),deepcopy(ta.symbols),deepcopy(ta.arcs),Dict(deepcopy(ta.invariants)))
+Base.iterate(x::TA) = (x, nothing)
+Base.iterate(::TA, ::Any) = nothing
+Base.length(x::TA) = 1
+Base.Broadcast.broadcastable(c::TA) = Ref(c)
+Base.adjoint(c::TA) = c
+
 # Timed Transition System
 struct TTS{State, T}
     states::Vector{Tuple{State,TAConstraint{T}}}
     transitions::Vector{Pair{Tuple{State,TAConstraint{T}}, Tuple{TAMessage, Tuple{State,TAConstraint{T}}}}}
     function TTS(ta::TA{State,T}; kwargs...) where {State, T} 
-        new{State,T}(TimedAutomata.zone_graph(ta; kwargs...)...)
+        new{State,T}(TimedAutomata.zone_graph_fwd(ta; kwargs...)...)
     end
 end
+
+Base.iterate(x::TTS) = (x, nothing)
+Base.iterate(::TTS, ::Any) = nothing
+Base.length(x::TTS) = 1
+Base.Broadcast.broadcastable(c::TTS) = Ref(c)
+Base.adjoint(c::TTS) = c
+Base.copy(tts::T) where T<:TTS = T(tts.states,tts.transitions)
+Base.deepcopy(tts::T) where T<:TTS = T(deepcopy(tts.states),deepcopy(tts.transitions))
