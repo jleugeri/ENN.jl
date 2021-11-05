@@ -1,4 +1,4 @@
-using Base.Iterators
+using Base.Iterators, Combinatorics
 export close!, close, up!, up, reset!, reset, zone_graph_fwd, get_clock_ceilings, get_diagonal_constraints, get_diagonal_guards, normalize_zone, normalize_zone_k, reachable_states, unreachable_states, prune, prune!
 
 
@@ -257,17 +257,10 @@ function language(ts::TTS{State,T}) where {State,T}
 end
 
 function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) where {T}
-    # Construct parallel state type
-    _TT = Tuple{first.(getfield.(typeof(tas).parameters, :parameters))...}
     N = length(tas)
-    TT = if isempty(names)
-        names = 1:N
-        _TT
-    else
-        names = Tuple(Symbol.(names))
-        @assert length(names) == N
-        NamedTuple{names,_TT}
-    end
+
+    initial_state = |((ta.initial_state for ta in tas)...)
+    TT = typeof(initial_state)
 
     clock_mappers = if separate_clocks
         [(s::Symbol)->Symbol("$(s)_$(i)") for i in 1:N]
@@ -275,7 +268,8 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
         fill(identity, N)
     end
 
-    all_states = collect(product((ta.states for ta in tas)...))[:]
+    product_states = product((ta.states for ta in tas)...)
+    all_states = collect(|(p...) for p in product_states)[:]
     all_edges = Vector{TAArc{TT,T}}()
     all_invariants = Dict{TT, TAConstraint{T}}()
 
@@ -306,11 +300,11 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
     # compute the combined invariant for a given state from multiple automata
     compute_invariant(state) = intersect((extend_clock_list(tas[i].invariants[state[i]],i) for i in 1:N)...)
     
-    initial_state = TT(first.(getfield.(tas,:states)))
 
-    for state in all_states
+    for state in product_states
+        combined_state = |(state...)
         invariant = compute_invariant(state)
-        all_invariants[state] = invariant
+        all_invariants[|(state...)] = invariant
 
         @assert !isempty(invariant) "Invariant empty!"
 
@@ -364,16 +358,20 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
             for edge_set in edge_sets
                 # step 3.a: compute combined guard = union of guards
                 guard = TAConstraint(TADiagonalConstraint{T}[],all_clocks)
+                dir = MSG_SILENT
                 invalid = false
-                tmp = Any[]
+                target_state = Any[]
                 resets = Set{Symbol}()
                 for (k,edge_id) in enumerate(edge_set)
                     if isnothing(edge_id)
-                        push!(tmp, state[k])
+                        push!(target_state, state[k])
                     else
                         edge = tas[k].arcs[edge_id]
-                        push!(tmp, edge.target)
+                        push!(target_state, edge.target)
                         union!(resets, clock_mappers[k].(edge.resets))
+                        if dir==MSG_SILENT || edge.message.direction==MSG_OUT
+                            dir=edge.message.direction
+                        end
                         intersect!(guard, extend_clock_list(edge.guard,k))
                         if isempty(guard)
                             invalid=true
@@ -384,7 +382,6 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
                 if invalid
                     continue
                 end
-                target_state = TT(tmp)
 
                 # step 3.b: ignore edge if combined invariant of current state, guard & reset is incompatible with invariant of target state
                 c = guard ∩ invariant
@@ -396,7 +393,7 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
                     continue
                 end
                 
-                push!(potential_edges, TAArc(state, target_state, guard, TAMessage(MSG_OUT,symbol), resets))
+                push!(potential_edges, TAArc(combined_state, |(target_state...), guard, TAMessage(dir,symbol), resets))
             end
                 
             # step 4: for every valid edge set, check every superset
@@ -413,14 +410,14 @@ function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) whe
                     edgeⱼ = potential_edges[j]
 
                     # step 4.a: if the guard of the superset includes the guard of this set, remove this set 
-                    if all((edgeᵢ.target .== state) .| (edgeᵢ.target .== edgeⱼ.target)) &&
+                    if all((edgeᵢ.target .== combined_state) .| (edgeᵢ.target .== edgeⱼ.target)) &&
                         (edgeⱼ.guard ⊆ edgeᵢ.guard)
                         to_remove[i] = true
-                    elseif all((edgeⱼ.target .== state) .| (edgeᵢ.target .== edgeⱼ.target)) &&
+                    elseif all((edgeⱼ.target .== combined_state) .| (edgeᵢ.target .== edgeⱼ.target)) &&
                         (edgeᵢ.guard ⊆ edgeⱼ.guard)
                         to_remove[j] = true
-                    elseif all((edgeᵢ.target .== state) .| (edgeᵢ.target .== edgeⱼ.target)) || 
-                        all((edgeⱼ.target .== state) .| (edgeᵢ.target .== edgeⱼ.target))
+                    elseif all((edgeᵢ.target .== combined_state) .| (edgeᵢ.target .== edgeⱼ.target)) || 
+                        all((edgeⱼ.target .== combined_state) .| (edgeᵢ.target .== edgeⱼ.target))
                         # step 4.b: else cut out the superset's guard region from this guard region <- this requires splitting this zone!!! -> multiple edges
                         throw(ErrorException("Broadcast with non-trivially intersecting guards is not implemented yet"))
                     else
@@ -467,3 +464,100 @@ function prune!(ta::TA, prune_states=unreachable_states(ta))
     ta
 end
 prune(ta::TA) = prune!(deepcopy(ta))
+
+
+function find_isomorphism(ta1::TA, ta2::TA)
+    if length(ta1.states)!=length(ta2.states)
+        return nothing
+    end
+
+    is_permutation(M::Matrix{Bool}) = all(sum(M,dims=1)' .== sum(M,dims=2) .== 1)
+
+    function check_possible_assigment(M,clks,assignment)
+        M′ = copy(M)      
+
+        # set assigments
+        for (k,l) in assignment
+            # check state
+            i1 = copy(ta1.invariants[ta1.states[k]])
+            TimedAutomata.set_clock_list!(i1,ta2.clocks;mapping=clks)
+
+            if !M′[k,l] || i1 != ta2.invariants[ta2.states[l]]
+                # assigment not possible!
+                return nothing
+            end
+            M′[k,:] .= false
+            M′[:,l] .= false
+            M′[k,l] = true
+        end
+
+        if is_permutation(M′)
+            # we did it!
+            return M′
+        end
+
+        # check successor-states and recurse
+        potential_assignments = []
+        for (i,j) in assignment
+            state1 = ta1.states[i]
+            state2 = ta2.states[j]
+            edges1 = ta1.arcs_by_state[state1]
+            edges2 = ta2.arcs_by_state[state2] 
+            if length(edges1) != length(edges2)
+                # this assigment didn't work out!
+                return
+            end
+
+            # find all possible ways to identify the edges of the two states
+            E = zeros(Bool, length(edges1), length(edges2))
+            for (k,edge1) in enumerate(edges1)
+                for (l,edge2) in enumerate(edges2)
+                    id1 = findfirst(==(edge1.target), ta1.states)
+                    id2 = findfirst(==(edge2.target), ta2.states)
+                    eg1 = copy(edge1.guard)
+                    TimedAutomata.set_clock_list!(eg1,ta2.clocks;mapping=clks)
+                    if M′[id1,id2] && edge1.message == edge2.message && eg1 == edge2.guard
+                        E[k,l] = true
+                    end
+                end
+            end
+
+            # cannot map some edge
+            if any(sum(E,dims=1).==0) || any(sum(E,dims=2).==0)
+                # this assigment didn't work out!
+                return
+            end
+
+            edge_combos = product((edges2[col] for col in eachcol(E))...)
+            push!(potential_assignments,[[(findfirst(==(edges1[i].target), ta1.states),findfirst(==(e.target), ta2.states)) for (i,e) in enumerate(ee) ] for ee in (edge_combos)])
+        end
+
+        for potential_assignment in (product(potential_assignments...))
+            res = check_possible_assigment(M′,clks, flatten(potential_assignment))
+            if !isnothing(res)
+                return res
+            end
+        end
+        # we didn't find a working assingment
+        return
+    end
+
+    id1 = findfirst(==(ta1.initial_state), ta1.states)
+    id2 = findfirst(==(ta2.initial_state), ta2.states)
+
+    M = ones(Bool, length(ta1.states), length(ta2.states))
+
+    function clks_fact(d)
+        (id)->d[id]
+    end
+    
+    for permutation in permutations(ta2.clocks)
+        d = Dict(zip(ta1.clocks,permutation))
+        res = check_possible_assigment(M, clks_fact(d), [(id1,id2)])
+        if !isnothing(res)
+            s=Dict(ta1.states[ind[1]]=>ta2.states[ind[2]] for ind in findall(res))
+            return (states=s,clocks=d)
+        end
+    end
+    return
+end

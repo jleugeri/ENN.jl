@@ -103,6 +103,69 @@ end
     )
 
     zg1 = TTS(automaton1)
+
+    s1=TimedAutomata.TAState(3,4,5,6,7)
+    s2=TimedAutomata.TAState(8)
+    s3=TimedAutomata.TAState(9,10)
+
+    s4 = s1|s2|s3
+    s5 = |(s1,s2,s3)
+    @test s4==s5
+    @test collect(s4) == collect(s5) == collect(s4[1:end]) == [3, 4, 5, 6, 7, 8, 9, 10]
 end
 
+
+@testset "Automata tests" begin
+    automaton4=TA(
+        ["off","dim","bright"],
+        "off",
+        [:x],
+        Set([:press]),
+        Vector([
+            @arc("off", "dim", true, TAMessage(MSG_IN, :press), [:x]),
+            @arc("dim", "off", x>10//1, TAMessage(MSG_IN, :press), []),
+            @arc("dim", "bright", x≤10//1, TAMessage(MSG_IN, :press), []),
+            @arc("bright", "off", true, TAMessage(MSG_IN, :press), [])
+        ]),
+        Dict{String,TAConstraint{Rational{Int}}}()
+    )
+    zg4 = TTS(automaton4)
+
+    automaton5=TA(
+        ["idle","t","study", "relax"],
+        "idle",
+        [:y],
+        Set([:press]),
+        Vector([
+            @arc("t", "study", true, TAMessage(MSG_OUT, :press), []),
+            @arc("study", "study", true, TAMessage(), []),
+            @arc("study", "idle", true, TAMessage(MSG_OUT, :press), []),
+            @arc("idle", "t", true, TAMessage(MSG_OUT, :press), [:y]),
+            @arc("idle", "relax", true, TAMessage(MSG_OUT, :press), [:y]),
+            @arc("relax", "idle", y>10//1, TAMessage(MSG_OUT, :press), [])
+        ]),
+        Dict(
+            "t" => @constraint y<5//1
+        )
+    )
+    
+    automaton44 = automaton4 | automaton4
+    automaton45 = automaton4 | automaton5
+    automaton44p = prune(automaton44)
+    automaton445 = |(automaton4, automaton4, automaton5)
+    automaton544 = |(automaton5, automaton4, automaton4)
+    automaton44_5 = automaton44 | automaton5
+    automaton44p_5 = automaton44p | automaton5
+    automaton4_45 = automaton4 | (automaton4 | automaton5)
+    automaton5_44 = automaton5 | automaton44
+    
+    recursive_flatten()
+
+    for automaton in (;automaton44,automaton45,automaton44p)
+    for automaton in (;automaton445,automaton544,automaton44_5,automaton44p_5,automaton4_45,automaton5_44)
+        @test length(automaton.states)== length(automaton4.states)^2 * length(automaton5.states)
+        pruned_automaton = prune(automaton)
+        @test length(pruned_automaton) == 
+    end
+end
 end
