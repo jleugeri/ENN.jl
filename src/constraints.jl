@@ -168,9 +168,10 @@ function Base.isempty(c::TAConstraint)
 end
 
 function set_clock_list!(ta::TAConstraint{T}, clocks::Vector{Symbol}; mapping=identity) where T
+    clocks = copy(clocks)
     D = make_dbm(TADiagonalConstraint{T}[], clocks)
 
-    @assert mapping.(ta.clocks) ⊆ clocks "Not all clocks of the constraint set ($(ta.clocks)') are in the given list of clocks ($(clocks))."
+    @assert mapping.(ta.clocks) ⊆ clocks "Not all clocks of the constraint set ($(mapping.(ta.clocks))) are in the given list of clocks ($(clocks))."
 
     lookup = Dict(zip(clocks,keys(clocks)))
     for (i,clock1) ∈ enumerate([nothing; ta.clocks])

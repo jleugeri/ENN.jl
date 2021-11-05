@@ -1,4 +1,5 @@
 using TimedAutomata, GLMakie, GraphMakie
+##
 
 states = ["S0", "S1", "S2", "S3"]
 initial_state = "S0"
@@ -20,6 +21,7 @@ automaton1 = TA(
     invariants
 )
 
+##
 states = ["start", "loop", "end"]
 initial_state = "start"
 clocks = [:x,:y]
@@ -40,6 +42,7 @@ automaton2 = TA(
     invariants
 )
 
+##
 τ = 1//1
 automaton3 = TA(
     [(0,0), (0,1), (1,0), (1,1)],
@@ -57,7 +60,7 @@ automaton3 = TA(
         (1,1) => @constraint(y≤τ)
     )
 )
-
+##
 automaton4=TA(
     ["off","dim","bright"],
     "off",
@@ -92,15 +95,17 @@ automaton5=TA(
     )
 )
 
-
 automaton45 = automaton4 | automaton5
+automaton44 = (automaton4 | automaton4)
+automaton54 = automaton5 | automaton4
+
+find_isomorphism(automaton45,automaton54)
 
 automaton445 = |(automaton4, automaton4, automaton5)
-automaton44_5 = (automaton4 | automaton4) | automaton5
-automatonp44_5 = (prune(automaton4 | automaton4)) | automaton5
-automaton4_45 = automaton4 | (automaton4 | automaton5)
 
-automata = ("Example 1"=>automaton1, "Example 2"=>automaton2, "2 Neuron-Segments"=>automaton3, "Lamp"=>automaton4, "Student"=>automaton5, "Lamp + Student"=>automaton45, "2 Lamps + Student"=>automaton445, "(2 Lamps) + Student"=>automaton44_5, "prune(2 Lamps) + Student"=>automatonp44_5, "1 Lamps + (1 Lamp + Student)"=>automaton4_45);
+##
+
+automata = ("Example 1"=>automaton1, "Example 2"=>automaton2, "2 Neuron-Segments"=>automaton3, "Lamp"=>automaton4, "Student"=>automaton5, "Lamp + Student"=>automaton45, "2 Lamps + Student"=>automaton445);
 for (name,automaton) in automata
     for condition in ("automaton", "pruned automaton", "zone graph")
         obj=if condition=="automaton"

@@ -103,6 +103,94 @@ end
     )
 
     zg1 = TTS(automaton1)
+
+    s1=TimedAutomata.TAState(3,4,5,6,7)
+    s2=TimedAutomata.TAState(8)
+    s3=TimedAutomata.TAState(9,10)
+
+    s4 = s1|s2|s3
+    s5 = |(s1,s2,s3)
+    @test s4==s5
+    @test collect(s4) == collect(s5) == collect(s4[1:end]) == [3, 4, 5, 6, 7, 8, 9, 10]
+
+
+
+    automaton4=TA(
+        ["off","dim","bright"],
+        "off",
+        [:x],
+        Set([:press]),
+        Vector([
+            @arc("off", "dim", true, TAMessage(MSG_IN, :press), [:x]),
+            @arc("dim", "off", x>10//1, TAMessage(MSG_IN, :press), []),
+            @arc("dim", "bright", x≤10//1, TAMessage(MSG_IN, :press), []),
+            @arc("bright", "off", true, TAMessage(MSG_IN, :press), [])
+        ]),
+        Dict{String,TAConstraint{Rational{Int}}}()
+    )
+    zg4 = TTS(automaton4)
+    
+    
+    automaton5=TA(
+        ["idle","t","study", "relax"],
+        "idle",
+        [:y],
+        Set([:press]),
+        Vector([
+            @arc("t", "study", true, TAMessage(MSG_OUT, :press), []),
+            @arc("study", "study", true, TAMessage(), []),
+            @arc("study", "idle", true, TAMessage(MSG_OUT, :press), []),
+            @arc("idle", "t", true, TAMessage(MSG_OUT, :press), [:y]),
+            @arc("idle", "relax", true, TAMessage(MSG_OUT, :press), [:y]),
+            @arc("relax", "idle", y>10//1, TAMessage(MSG_OUT, :press), [])
+        ]),
+        Dict(
+            "t" => @constraint y<5//1
+        )
+    )
+
+    automaton4p = prune(automaton4)
+    automaton44 = (automaton4 | automaton4)
+    automaton45 = automaton4 | automaton5
+    automaton54 = automaton5 | automaton4
+
+    automaton44p = prune(automaton44)
+    automaton45p = prune(automaton45)
+    
+    @test !isnothing(find_isomorphism(automaton45,automaton54))
+    @test isnothing(find_isomorphism(automaton44,automaton45))
+    @test isnothing(find_isomorphism(automaton44, automaton4))
+
+    automaton44p′ = deepcopy(automaton44p)
+    TimedAutomata.set_clock_list!(automaton44p′, automaton4p.clocks; mapping=(_)->:x)
+    @test !isnothing(find_isomorphism(automaton44p′, automaton4p))
+    automaton44p_5 = automaton44p′ | automaton5
+    @test !isnothing(find_isomorphism(automaton44p_5, automaton45))
+    
+    @test length(automaton45.states)== length(automaton4.states)*length(automaton5.states)
+    @test length(automaton45p.states)== 4
+    
+    automaton445 = |(automaton4, automaton4, automaton5)
+    @test length(automaton445.states) == length(automaton4.states)^2 * length(automaton5.states)
+
+    automaton544 = |(automaton5, automaton4, automaton4)
+    automaton44_5 = automaton44 | automaton5
+    automaton4_45 = automaton4 | (automaton4 | automaton5)
+    automaton5_44 = automaton5 | automaton44
+
+    
+    automata = (automaton445, automaton544, automaton44_5, automaton4_45, automaton5_44)
+    for a1 in automata
+        a1p=prune(a1)
+        @test length(a1p.states) == length(automaton45p.states)
+
+        for a2 in automata
+            a2p=prune(a2)
+    
+            @test !isnothing(find_isomorphism(a1,a2))
+            @test !isnothing(find_isomorphism(a1p,a2p))
+        end
+    end
 end
 
 end
