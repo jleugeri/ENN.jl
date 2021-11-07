@@ -138,10 +138,10 @@ function get_clock_ceilings(ta::TA{State,T}) where {State, T}
 end
 
 
-function zone_graph_fwd(ta::TA{State, T}; k_fun=kk->fill(maximum(kk),size(kk)), ignore_implicit_delays=true, max_iter = 1e4) where {State, T}
+function zone_graph_fwd(ta::TA{State, T}; initial_zone=ta.invariants[ta.initial_state], k_fun=kk->fill(maximum(kk),size(kk)), ignore_implicit_delays=true, max_iter = 1e4) where {State, T}
     lD_initial = (
         ta.initial_state, 
-        ta.invariants[ta.initial_state]
+        initial_zone
     )
     states = Tuple{State,TAConstraint{T}}[lD_initial]
     transitions = Pair{Tuple{State,TAConstraint{T}},Tuple{TAMessage,Tuple{State,TAConstraint{T}}}}[]
@@ -224,38 +224,83 @@ function zone_graph_fwd(ta::TA{State, T}; k_fun=kk->fill(maximum(kk),size(kk)), 
 end
 
 
-function language(ts::TTS{State,T}) where {State,T}
+#=
+function language(ts::TTS{State,T}; ignore_silent=false) where {State,T}
+    CombinedState = Tuple{State, TAConstraint{T}}
+    sequences = NamedTuple{(:word,:history,:loops),Tuple{Vector{String},Vector{CombinedState}},Vector{Tuple{Int,Int}}}[]
+    
+    head = 0
+    while head < length(sequences)
+        head += 1
+        sequence = sequences[head]
+        state=last(sequence.history)
+
+        split=0
+        for trans in ts.transitions
+            if trans[1]==state
+                msg,target=trans[2]
+
+                i = findfirst(==(target), sequence.history)
+                
+                if isnothing(i) || 
+                    # not loop (yet), or the loop is inexpressible as a regex -> new state
+                    split += 1
+                    new_sequence = split==1 ? sequence : (word=copy(sequence.word), history=copy(sequence.history), loops=copy(sequence.history))
+                    push!(new_sequence.history, target)
+                    push!(new_sequence.word, ignore_silent && msg.direction == MSG_SILENT ? "" : repr(msg))
+    
+                    if split>1
+                        push!(sequences, new_sequence)
+                    end
+                else
+                    # loop detected
+                    loop = (i,length(sequence.history)
+                    if loop
+                    push!(history.loops, (i,length(sequence.history)))
+                end
+            end
+        end
+    end
+
+    # simplify
+    for (word,history,loops) in sequences
+
+    end
+end
+
+function language(ts::TTS{State,T}; ignore_silent=false) where {State,T}
     CombinedState = Tuple{State, TAConstraint{T}}
     
     function recurse(visited, state)
         if state in visited
-            return [("",state)]
+            return Set{Tuple{String,Union{CombinedState,Nothing}}}([("",state)])
         end
 
         push!(visited, state)
-        sequences = Tuple{String,Union{CombinedState,Nothing}}[]
+        sequences = Set{Tuple{String,Union{CombinedState,Nothing}}}()
         for trans in ts.transitions
             if trans[1]==state
                 msg,target=trans[2]
-                paths = recurse(deepcopy(visited), target)
-                seqs=map(paths) do (tail,loop)
-                    if loop==state
-                        "($(msg)$(tail))*",nothing
+                m = ignore_silent && msg.direction == MSG_SILENT ? "" : repr(msg)
+                paths = recurse(copy(visited), target)
+                for (tail,loop) in paths
+                    res=if loop==state
+                        "($(m)$(tail))*",nothing
                     else
-                        "$(msg)$(tail)",loop
+                        "$(m)$(tail)",loop
                     end
+                    push!(sequences,res)
                 end
-                append!(sequences,seqs)
             end
         end
 
         return sequences
     end
 
-    res = recurse(Vector{CombinedState}(), ts.states[1])
+    res = recurse(Set{CombinedState}(), ts.states[1])
     return first.(res)
 end
-
+=#
 function Base.:|(tas::(TA{S, T} where S)...; names=[], separate_clocks=true) where {T}
     N = length(tas)
 

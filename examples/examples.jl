@@ -43,24 +43,6 @@ automaton2 = TA(
 )
 
 ##
-τ = 1//1
-automaton3 = TA(
-    [(0,0), (0,1), (1,0), (1,1)],
-    (0,0),
-    [:x, :y],
-    Set([:A; :B]),
-    Vector([
-        @arc((0,0), (1,0), true, TAMessage(MSG_IN, :A), [:x] ), 
-        @arc((1,0), (0,0), x==τ, TAMessage(), [:x,:y]),
-        @arc((1,0), (1,1), x<τ, TAMessage(MSG_IN, :B), [:y]),
-        @arc((1,1), (0,0), y==τ, TAMessage(), [:x,:y]),
-    ]),
-    Dict(
-        (1,0) => @constraint(x≤τ),
-        (1,1) => @constraint(y≤τ)
-    )
-)
-##
 automaton4=TA(
     ["off","dim","bright"],
     "off",
@@ -105,7 +87,7 @@ automaton445 = |(automaton4, automaton4, automaton5)
 
 ##
 
-automata = ("Example 1"=>automaton1, "Example 2"=>automaton2, "2 Neuron-Segments"=>automaton3, "Lamp"=>automaton4, "Student"=>automaton5, "Lamp + Student"=>automaton45, "2 Lamps + Student"=>automaton445);
+automata = ("Example 1"=>automaton1, "Example 2"=>automaton2, "Lamp"=>automaton4, "Student"=>automaton5, "Lamp + Student"=>automaton45, "2 Lamps + Student"=>automaton445);
 for (name,automaton) in automata
     for condition in ("automaton", "pruned automaton", "zone graph")
         obj=if condition=="automaton"

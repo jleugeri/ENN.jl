@@ -4,9 +4,8 @@ function GraphMakie.graphplot(ta::TA, args...; show_guards=true, show_invariants
     g = SimpleDiGraph(length(ta.states))
     
     nlabels = map(ta.states) do state
-        s = "⟨"*repr("text/plain", state)*"⟩"
         inv = show_invariants ? "\n"*repr("text/plain", ta.invariants[state]) : ""
-        s*inv
+        repr("text/plain", state)*inv
     end
 
     elabels=Dict{Graphs.SimpleGraphs.SimpleEdge,String}()
@@ -20,7 +19,7 @@ function GraphMakie.graphplot(ta::TA, args...; show_guards=true, show_invariants
         clks = show_resets ? join(String.(arc.resets) .* ":=0", ", ") : ""
         guard = show_guards ? repr("text/plain", arc.guard) : ""
 
-        elabels[e]=join(filter(Base.:!∘isempty,(msg,clks,guard)), "\n")
+        elabels[e]=join(filter(!isempty,(msg,clks,guard)), "\n")
     end
 
     f,ax,p= graphplot(g, args...; nlabels, elabels=getindex.(Ref(elabels),edges(g)), nlabels_align, nlabels_distance, elabels_distance, kwargs...)

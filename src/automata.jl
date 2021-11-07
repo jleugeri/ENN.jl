@@ -1,4 +1,4 @@
-export TAMessage, TAArc, TA, TTS, MSG_DIRECTION, MSG_IN, MSG_OUT
+export TAMessage, TAArc, TA, TTS, MSG_DIRECTION, MSG_IN, MSG_OUT, MSG_SILENT
 
 @enum MSG_DIRECTION MSG_IN=1 MSG_OUT=0 MSG_SILENT=-1
 
@@ -43,6 +43,15 @@ Base.Broadcast.broadcastable(c::TAArc) = Ref(c)
 Base.adjoint(c::TAArc) = c
 Base.copy(a::T) where T<:TAArc = T(a.source,a.target,a.guard,a.message,a.resets)
 Base.deepcopy(a::T) where T<:TAArc = T(deepcopy(a.source),deepcopy(a.target),deepcopy(a.guard),deepcopy(a.message),deepcopy(a.resets))
+function Base.show(io::IO, arc::TAArc)
+    m=repr(arc.message)
+    r=join(arc.resets, ",")
+    r=isempty(r) ? "" : "{$(r)}"
+    g=repr(arc.guard)
+    i=join(filter(!isempty, (m,g,r)),",")
+    i = isempty(i) ? i : "($(i))"
+    print(io, "$(repr(arc.source))——$(i)—⟶$(repr(arc.target))")
+end
 
 function set_clock_list!(arc::TAArc{State,T}, clocks::Vector{Symbol}; mapping=identity) where {State,T}
     set_clock_list!(arc.guard, clocks; mapping)
@@ -59,6 +68,8 @@ struct TAState{CombinedState}
         new{typeof(s)}(s)
     end
 end
+Base.:(==)(s::TAState, o::TAState) = s.components==o.components
+Base.hash(s::TAState) = hash(s.components)
 Base.iterate(x::TAState) = iterate(x.components)
 Base.iterate(x::TAState, s) = iterate(x.components, s)
 Base.length(x::TAState) = length(x.components)
@@ -69,6 +80,10 @@ Base.adjoint(x::TAState) = x
 Base.copy(x::T) where T<:TAState = T(x.components)
 Base.deepcopy(x::T) where T<:TAState = TAState(deepcopy.(x.components)...)
 Base.:|(args::TAState...) = TAState(flatten(x.components for x in args)...)
+function Base.show(io::IO, x::TAState)
+    s=join(repr.(x.components),"|")
+    print(io, "⟨$(s)⟩")
+end
 
 struct TA{State, T}
     states::Vector{State}                    # set of states
@@ -148,8 +163,8 @@ end
 struct TTS{State, T}
     states::Vector{Tuple{State,TAConstraint{T}}}
     transitions::Vector{Pair{Tuple{State,TAConstraint{T}}, Tuple{TAMessage, Tuple{State,TAConstraint{T}}}}}
-    function TTS(ta::TA{State,T}; kwargs...) where {State<:TAState, T} 
-        new{State,T}(TimedAutomata.zone_graph_fwd(ta; kwargs...)...)
+    function TTS(ta::TA{State,T}, args...; kwargs...) where {State<:TAState, T} 
+        new{State,T}(TimedAutomata.zone_graph_fwd(ta, args...; kwargs...)...)
     end
 end
 
