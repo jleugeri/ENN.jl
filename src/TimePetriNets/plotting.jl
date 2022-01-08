@@ -1,4 +1,4 @@
-using GraphMakie, GLMakie, Graphs, Printf
+using GraphMakie, Graphs, Printf
 
 """
 GraphMakie.graphplot(pn::TPN, x=pn.x₀, args...; nlabels_align=(:center,:bottom), nlabels_distance=25, elabels_distance=5, kwargs...)
