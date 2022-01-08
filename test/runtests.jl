@@ -1,4 +1,4 @@
-using TimedAutomata, Test
+using ENN.TimedAutomata, Test
 
 @testset "All tests" begin
 @testset "Bounds tests" begin

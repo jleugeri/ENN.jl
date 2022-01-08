@@ -1,4 +1,4 @@
-name = "TimedAutomata"
+name = "ENN"
 uuid = "6fd9f67a-079e-11e9-10fd-bfb542d8a2c9"
 authors = ["johannes "]
 version = "0.1.0"
@@ -12,4 +12,6 @@ GraphMakie = "1ecd5474-83a3-4783-bb4f-06765db800d2"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

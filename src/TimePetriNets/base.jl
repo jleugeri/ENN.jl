@@ -1,0 +1,361 @@
+using SparseArrays
+
+export TPNState, TPN, isenabled, isready, isvalidstate, update_clock!, max_delay, elapse!, fire!, fire_all!, fire_necessary!, run!
+
+
+"""
+    TPNState
+
+Class to hold the state (=place and transition markings) of the Time Petri Net.
+"""
+struct TPNState{M,H}
+    m::Vector{M}                # p-marking
+    h::Vector{Union{Nothing,H}} # t-marking
+end
+
+# forward declare function so it can be used in constructor
+function isenabled end
+
+"""
+    TPN{M,H}
+
+Class to hold the entire Time Petri Net.
+This implementation uses an unusual parameterization inspired by [*Time and Petri Nets*, 2013][1]:
+
+# Attributes:
+- `P::Vector{Symbol}`: names of the places
+- `T::Vector{Symbol}`: names of the transitions
+- `C::SparseMatrixCSC{UInt}`: conditions of the transitions
+- `ΔF::SparseMatrixCSC{Int}`: token-changes caused by the transitions (one column per transition)
+- `eft::Vector{H}`: earliest firing time of transition
+- `lft::Vector{H}`: last firing time of transition
+- `x₀::TPNState{M,H}`: initial state vector
+
+[1]: https://link.springer.com/book/10.1007/978-3-642-41115-1
+"""
+struct TPN{M,H}
+    P::Vector{Symbol}           # names of the places
+    T::Vector{Symbol}           # names of the transitions
+    C::SparseMatrixCSC{M}       # conditions of the transitions
+    ΔF::SparseMatrixCSC{M}      # token-changes caused by the transitions (one column per transition)
+    eft::Vector{H}              # earliest firing time of transition
+    lft::Vector{H}              # last firing time of transition
+    x₀::TPNState{M,H}           # initial state vector
+    # internal helper variables
+    may_disable::SparseMatrixCSC{Bool}
+    may_enable::SparseMatrixCSC{Bool}
+
+    """
+        TPN(P,T,C,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
+
+    Construct the `TPN`.
+
+    # Arguments:
+    - `P`: names of the places
+    - `T`: names of the transitions
+    - `C`: conditions of the transitions
+    - `ΔF`: token-changes caused by the transitions (one column per transition)
+    - `eft`: earliest firing time of transition
+    - `lft`: last firing time of transition
+    - `m₀::Union{TPNState,Vector{<:Integer}}`: initial state vector (if type `TPNState`) or initial marking
+    """
+    function TPN(P,T,C,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
+        nT = length(T)
+        # initial state or initial marking provided
+        x₀ = isa(m₀, TPNState) ? m₀ : TPNState(Vector{M}(m₀), Vector{Union{Nothing,H}}(nothing, nT))
+    
+        # check which transitions can disable each other
+        may_disable = spzeros(Bool, nT, nT)
+        may_enable = spzeros(Bool, nT, nT)
+        ΔF_rows = rowvals(ΔF)
+        ΔF_vals = nonzeros(ΔF)
+        C_rows = rowvals(C)
+        @inbounds for t_id in 1:nT
+            # if the number of tokens is decreased, may disable other transition
+            decreased = [ΔF_rows[i] for i in nzrange(ΔF, t_id) if ΔF_vals[i] < 0]
+            # if the number of tokens is increased, may enable other transition
+            increased = [ΔF_rows[i] for i in nzrange(ΔF, t_id) if ΔF_vals[i] > 0]
+
+            for t_id′ in 1:nT
+                checked = C_rows[nzrange(C, t_id′)]
+                if !isdisjoint(decreased, checked) 
+                    may_disable[t_id′,t_id] = true 
+                end
+                if !isdisjoint(increased, checked) 
+                    may_enable[t_id′,t_id] = true 
+                end
+            end
+        end
+     
+        pn = TPN{M,H}(P,T,C,ΔF,eft,lft,x₀, may_disable, may_enable)
+    
+        # set clocks of all enabled transitions in initial state to zero
+        @inbounds for t_id in eachindex(T)
+            if isenabled(pn, x₀, t_id)
+                x₀.h[t_id] = zero(H)
+            end
+        end
+        pn
+    end
+end
+
+"""
+    isenabled(pn::TPN, x, t_id)
+
+Returns `true` if the transition with ID `t_id` of the TPN `pn` is enabled in state `x` and false otherwise.
+
+!!! info
+    The notion of a transition being `enabled` in a Time Petri Net only refers to 
+    the place marking (i.e. tokens) and does **not** check the transition markings (i.e. clocks)!
+
+    For checking if the transition can be actually fired, see [`isready`](@ref)
+"""
+Base.@propagate_inbounds function isenabled(pn::TPN, x, t_id)
+    @boundscheck @assert 1 ≤ t_id ≤ length(pn.T) "Transition $(t_id) out of bounds!";
+    rows = rowvals(pn.C)
+    vals = nonzeros(pn.C)
+    @inbounds for i in nzrange(pn.C, t_id)
+        if x.m[rows[i]] < vals[i]
+            return false
+        end
+    end
+    return true
+end
+
+"""
+    isready(pn::TPN, x, t_id)
+
+Returns `true` if the transition with ID `t_id` of the TPN `pn` is ready in state `x` and false otherwise.
+
+!!! info
+    The notion of a transition being `ready` in a Time Petri Net requires both
+    the place marking (i.e. tokens) and the transition markings (i.e. clocks) to allow firing!
+
+    For only checking the place markings, see [`isenabled`](@ref)
+"""
+Base.@propagate_inbounds function isready(pn::TPN, x, t_id)
+    return !isnothing(x.h[t_id]) && pn.eft[t_id] ≤ x.h[t_id] ≤ pn.lft[t_id]
+end
+
+"""
+    isvalidstate(pn::TPN, x)
+
+Returns `true` if the place and transition markings of the state `x` in TPN `pn` are consistent, and `false` otherwise.
+"""
+function isvalidstate(pn::TPN, x)
+    for (t_id,h_t) in enumerate(x.h)
+        en = isenabled(pn, x, t_id)
+        @inbounds if (en && h_t > lft[t_id]) || (!en && !isnothing(h_t))
+            return false
+        end
+    end
+    return true
+end
+
+"""
+    update_clock!(pn::TPN, x::TPNState{M,H}, t_id) where {M,H}
+
+Sets the clock of the TPN `pn`'s transition `t_id` in state `x` to
+`zero(H)` if the transition was just enabled 
+or to `nothing` if the transition was just disabled
+
+!!! warning
+    This modifies the state `x`!
+"""
+Base.@propagate_inbounds function update_clock!(pn::TPN, x::TPNState{M,H}, t_id) where {M,H}
+    en = isenabled(pn, x, t_id)
+    @inbounds val = x.h[t_id]
+    @inbounds x.h[t_id] = if en && isnothing(val)
+        zero(H)
+    elseif en
+        val
+    else
+        nothing
+    end
+end
+
+"""
+    fire!(pn::TPN, x::TPNState, t_id; check_ready=true)
+
+Fires the transition `x` of TPN `pn` from state `x`.
+
+If `check_ready` is `true` (the default), then ensure that the transition is ready before firing. 
+
+!!! warning
+    This modifies the state `x`!
+"""
+Base.@propagate_inbounds function fire!(pn::TPN, x::TPNState, t_id; check_ready=true)
+    if !check_ready || isready(pn, x, t_id)
+        rows = rowvals(pn.ΔF)
+        vals = nonzeros(pn.ΔF)
+        @inbounds for i in nzrange(pn.ΔF, t_id)
+            @inbounds x.m[rows[i]] += vals[i]
+        end
+ 
+        @inbounds for t_id′ in rowvals(pn.may_disable)[nzrange(pn.may_disable,t_id)] ∪ rowvals(pn.may_enable)[nzrange(pn.may_enable,t_id)]
+            update_clock!(pn,x,t_id′)
+        end 
+    else
+        error("Transition #$(t_id) not ready!")
+    end
+    nothing
+end
+
+"""
+    fire_all!(pn::TPN, x; must_fire=isready)
+
+Fires all transitions `t` of TPN `pn` in state `x` for which `must_fire(pn, x, t)` returns `true`.
+
+Returns a vector of the fired transition labels.
+
+!!! warning
+    This modifies the state `x`!
+"""
+function fire_all!(pn::TPN, x; must_fire=isready)
+    options = Set(t_id for t_id in eachindex(pn.T) if must_fire(pn, x, t_id))
+    transitions = Symbol[]
+    while !isempty(options)
+        t_id = pop!(options, rand(options))
+        fire!(pn, x, t_id; check_ready=false)
+        push!(transitions, pn.T[t_id])
+
+        # check if transition must fire again
+        if must_fire(pn, x, t_id)
+            push!(options, t_id)
+        end
+
+        # check transitions that might have been disabled
+        @inbounds for t_id′ in rowvals(pn.may_disable)[nzrange(pn.may_disable,t_id)]
+            if !isready(pn, x, t_id′)
+                delete!(options, t_id′)
+            end
+        end
+
+        # check transitions that might have been enabled
+        @inbounds for t_id′ in rowvals(pn.may_enable)[nzrange(pn.may_enable,t_id)]
+            if must_fire(pn, x, t_id′)
+                push!(options, t_id′)
+            end
+        end
+    end
+    return transitions
+end
+
+"""
+    fire_necessary!(pn::TPN, x::TPNState) 
+
+Fires all transitions `t` of TPN `pn` in state `x` that are ready and cannot be delayed any further.
+
+Returns a vector of the fired transition labels.
+
+!!! warning
+    This modifies the state `x`!
+"""
+function fire_necessary!(pn::TPN, x::TPNState) 
+    isnecessary(pn, x, t_id) = 
+        @inbounds isready(pn, x, t_id) && x.h[t_id] == pn.lft[t_id]
+    fire_all!(pn, x; must_fire=isnecessary)
+end
+
+"""
+    max_delay(pn, x::TPNState{TT}) where TT
+
+Computes the maximum delay possible of TPN `pn` in state `x` that does not invalidate the state.
+"""
+function max_delay(pn, x::TPNState{TT}) where TT
+    m = typemax(TT)
+    for (tᵢ,lftᵢ) in zip(x.h,pn.lft)
+        if !isnothing(tᵢ)
+            m = min(m, lftᵢ-tᵢ)
+        end
+    end
+    return m
+end
+
+"""
+    elapse!(pn::TPN, x::TPNState, τ; check_valid=true)
+
+Elapses the time `τ`, i.e. advances all clocks of TPN `pn` in state `x` by `τ`.
+If `check_valid` is `true` (the default), then ensure that `τ` does not exceed the maximum allowed delay.
+
+!!! warning
+    This modifies the state `x`!
+"""
+Base.@propagate_inbounds function elapse!(pn::TPN, x::TPNState, τ; check_valid=true)
+    if !check_valid || τ ≤ max_delay(pn, x)
+        for (t_id,tᵢ) in enumerate(x.h)
+            if !isnothing(tᵢ)
+                @inbounds x.h[t_id] += τ
+            end
+        end
+    else
+        error("Time delay exceeds maximum delay ($(τ) > $(max_delay(pn,x)))!")
+    end
+end
+
+"""
+
+Runs the TPN `pn` from state `x`
+
+!!! warning
+    This modifies the state `x`!
+"""
+function run!(pn::TPN, x, events; tmax=first(last(events)))
+    @assert issorted(events, by=first) "Events must be a sequence of (time,transition) pairs with increasing time."
+
+    t_total = 0
+    for (time, ext_t_id) in events
+        while t_total < time
+            delay = max_delay(pn, x)
+            # elapse time until the next (external or internal event)
+            if time ≤ t_total + delay
+                # squeeze in our externally triggered transition
+                t_total = time
+                elapse!(pn, x, time-t_total)
+                fire!(pn, x, ext_t_id)
+
+                # fire all other events (to be sure)
+                fire_necessary!(pn, x, ext_t_id)
+            else
+                # proceed to next regular event
+                elapse!(pn, x, delay)
+                fire_necessary!(pn, x, ext_t_id)
+            end
+
+            t_new = min(time, t_total+_max_delay)
+            elapse!(pn, x, t_new-t_total)
+            t_total = t_new
+        end
+    end
+
+    x=copy(x)
+    trace = []
+    states = [copy(x)]
+    for t_id in t_ids
+        fire!(pn, x, t_id)
+        push!(trace, pn.T[t_id])
+        push!(states, copy(x))
+    end
+    return (;trace, states)
+end
+
+#=
+struct Model
+    num_monoflops::Integer
+    num_comparators::Integer
+
+    x₀::State
+end
+
+use BitVector
+# State of the mono-flops:
+state_monoflops = zeros(Bool, num_monoflops)
+state_counters = zero(Int, num_counters)
+state_full = zeros(Int, 2*num_monoflops + num_counters)
+
+function update!(state_full, state_monoflops, state_counters)
+    state_full[1:2:2num_monoflops] .= state_monoflops
+    state_full[2:2:2num_monoflops] .= !.(state_monoflops)
+    state_full
+end
+=#
