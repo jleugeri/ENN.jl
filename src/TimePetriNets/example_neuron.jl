@@ -1,3 +1,5 @@
+using SparseArrays, ENN
+
 pn=TPN(
     [:is_trig1, :is_on1, :is_off1, :is_trig2, :is_on2, :is_off2, :counter],
     [:in1, :in2, :on1, :off1, :on2, :off2],

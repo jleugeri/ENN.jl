@@ -25,7 +25,7 @@ This implementation uses an unusual parameterization inspired by [*Time and Petr
 # Attributes:
 - `P::Vector{Symbol}`: names of the places
 - `T::Vector{Symbol}`: names of the transitions
-- `C::SparseMatrixCSC{UInt}`: conditions of the transitions
+- `R::SparseMatrixCSC{UInt}`: additional read arcs of the transitions
 - `ΔF::SparseMatrixCSC{Int}`: token-changes caused by the transitions (one column per transition)
 - `eft::Vector{H}`: earliest firing time of transition
 - `lft::Vector{H}`: last firing time of transition
@@ -36,7 +36,7 @@ This implementation uses an unusual parameterization inspired by [*Time and Petr
 struct TPN{M,H}
     P::Vector{Symbol}           # names of the places
     T::Vector{Symbol}           # names of the transitions
-    C::SparseMatrixCSC{M}       # conditions of the transitions
+    C::SparseMatrixCSC{M}       # all dependencies of the transitions (read arcs + regular arcs)
     ΔF::SparseMatrixCSC{M}      # token-changes caused by the transitions (one column per transition)
     eft::Vector{H}              # earliest firing time of transition
     lft::Vector{H}              # last firing time of transition
@@ -53,13 +53,17 @@ struct TPN{M,H}
     # Arguments:
     - `P`: names of the places
     - `T`: names of the transitions
-    - `C`: conditions of the transitions
+    - `R`: additional read arcs of the transitions
     - `ΔF`: token-changes caused by the transitions (one column per transition)
     - `eft`: earliest firing time of transition
     - `lft`: last firing time of transition
     - `m₀::Union{TPNState,Vector{<:Integer}}`: initial state vector (if type `TPNState`) or initial marking
     """
-    function TPN(P,T,C,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
+    function TPN(P,T,R,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
+        M = eltype(ΔF)
+        H = eltype(eft)
+
+        C = sparse(R - ΔF.*(ΔF .< 0))
         nT = length(T)
         # initial state or initial marking provided
         x₀ = isa(m₀, TPNState) ? m₀ : TPNState(Vector{M}(m₀), Vector{Union{Nothing,H}}(nothing, nT))
@@ -87,7 +91,7 @@ struct TPN{M,H}
             end
         end
      
-        pn = TPN{M,H}(P,T,C,ΔF,eft,lft,x₀, may_disable, may_enable)
+        pn = new{M,H}(P,T,C,ΔF,eft,lft,x₀, may_disable, may_enable)
     
         # set clocks of all enabled transitions in initial state to zero
         @inbounds for t_id in eachindex(T)

@@ -1,4 +1,4 @@
-using GraphMakie, Graphs, Printf
+using GraphMakie, Makie, Graphs, Printf
 
 """
 GraphMakie.graphplot(pn::TPN, x=pn.x₀, args...; nlabels_align=(:center,:bottom), nlabels_distance=25, elabels_distance=5, kwargs...)
@@ -15,6 +15,7 @@ nlabels = ([
 node_marker = [fill(:circle,length(pn.P));fill(:rect,length(pn.T))]
 
 elabels=Dict{Graphs.SimpleGraphs.SimpleEdge,String}()
+estyles=Dict{Graphs.SimpleGraphs.SimpleEdge,Symbol}()
 rows = rowvals(pn.ΔF)
 vals = nonzeros(pn.ΔF)
 for t_id in eachindex(pn.T)
@@ -31,12 +32,31 @@ for t_id in eachindex(pn.T)
         end
 
         add_edge!(g,e)
-        elabels[e] = w==1 ? "" : repr(Int(w))
+        elabels[e] = abs(w)==1 ? "" : repr(Int(w))
+        estyles[e] = :black
+    end
+end
+
+# Add pure read arcs
+R = pn.C + pn.ΔF .* (pn.ΔF .< 0)
+rows = rowvals(R)
+vals = nonzeros(R)
+for t_id in eachindex(pn.T)
+    t_id′ = t_id + length(pn.P)
+    for i in nzrange(R, t_id)
+        p_id = rows[i]
+        w = vals[i]
+        e = Graphs.SimpleGraphs.SimpleEdge(p_id,t_id′)
+
+        add_edge!(g,e)
+        elabels[e] = abs(w)==1 ? "" : repr(Int(w))
+        estyles[e] = :gray
     end
 end
 
 # draw plot
-f,ax,p= graphplot(g, args...; nlabels, elabels=getindex.(Ref(elabels),edges(g)), nlabels_align, nlabels_distance, elabels_distance, node_marker, node_size=0.5, node_attr=(markerspace = SceneSpace, strokecolor=:black, strokewidth=1, glowwidth=5, glowcolor=fill(:transparent, length(pn.T)+length(pn.P))), node_color=fill(:gray,length(pn.T)+length(pn.P)), kwargs...)
+#edge_attr=(linestyle=getindex.(Ref(estyles),edges(g)),)
+f,ax,p= graphplot(g, args...; nlabels, elabels=getindex.(Ref(elabels),edges(g)), nlabels_align, nlabels_distance, elabels_distance, node_marker, node_size=0.5, edge_color=getindex.(Ref(estyles),edges(g)), node_attr=(markerspace = SceneSpace, strokecolor=:black, strokewidth=1, glowwidth=5, glowcolor=fill(:transparent, length(pn.T)+length(pn.P))), node_color=fill(:gray,length(pn.T)+length(pn.P)), kwargs...)
 ax.autolimitaspect = 1
 
 # add important attributes to plot
