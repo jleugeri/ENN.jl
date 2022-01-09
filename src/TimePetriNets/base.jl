@@ -15,6 +15,7 @@ end
 
 # forward declare function so it can be used in constructor
 function isenabled end
+function update! end
 
 """
     TPN{M,H}
@@ -68,37 +69,12 @@ struct TPN{M,H}
         # initial state or initial marking provided
         x₀ = isa(m₀, TPNState) ? m₀ : TPNState(Vector{M}(m₀), Vector{Union{Nothing,H}}(nothing, nT))
     
-        # check which transitions can disable each other
         may_disable = spzeros(Bool, nT, nT)
         may_enable = spzeros(Bool, nT, nT)
-        ΔF_rows = rowvals(ΔF)
-        ΔF_vals = nonzeros(ΔF)
-        C_rows = rowvals(C)
-        @inbounds for t_id in 1:nT
-            # if the number of tokens is decreased, may disable other transition
-            decreased = [ΔF_rows[i] for i in nzrange(ΔF, t_id) if ΔF_vals[i] < 0]
-            # if the number of tokens is increased, may enable other transition
-            increased = [ΔF_rows[i] for i in nzrange(ΔF, t_id) if ΔF_vals[i] > 0]
-
-            for t_id′ in 1:nT
-                checked = C_rows[nzrange(C, t_id′)]
-                if !isdisjoint(decreased, checked) 
-                    may_disable[t_id′,t_id] = true 
-                end
-                if !isdisjoint(increased, checked) 
-                    may_enable[t_id′,t_id] = true 
-                end
-            end
-        end
-     
+        
         pn = new{M,H}(P,T,C,ΔF,eft,lft,x₀, may_disable, may_enable)
-    
-        # set clocks of all enabled transitions in initial state to zero
-        @inbounds for t_id in eachindex(T)
-            if isenabled(pn, x₀, t_id)
-                x₀.h[t_id] = zero(H)
-            end
-        end
+        
+        update!(pn)
         pn
     end
 end
@@ -177,6 +153,43 @@ Base.@propagate_inbounds function update_clock!(pn::TPN, x::TPNState{M,H}, t_id)
         nothing
     end
 end
+
+"""
+    update!(pn::TPN)
+
+Updates the TPN after structural changes have been made (e.g. adding arcs).
+"""
+function update!(pn::TPN)
+    # check which transitions can disable each other
+    ΔF_rows = rowvals(pn.ΔF)
+    ΔF_vals = nonzeros(pn.ΔF)
+    C_rows = rowvals(pn.C)
+    @inbounds for t_id in eachindex(pn.T)
+        # if the number of tokens is decreased, may disable other transition
+        decreased = [ΔF_rows[i] for i in nzrange(pn.ΔF, t_id) if ΔF_vals[i] < 0]
+        # if the number of tokens is increased, may enable other transition
+        increased = [ΔF_rows[i] for i in nzrange(pn.ΔF, t_id) if ΔF_vals[i] > 0]
+
+        for t_id′ in eachindex(pn.T)
+            checked = C_rows[nzrange(pn.C, t_id′)]
+            if !isdisjoint(decreased, checked) 
+                pn.may_disable[t_id′,t_id] = true 
+            end
+            if !isdisjoint(increased, checked) 
+                pn.may_enable[t_id′,t_id] = true 
+            end
+        end
+    end
+
+    # set clocks of all enabled transitions in initial state to zero
+    @inbounds for t_id in eachindex(pn.T)
+        if isenabled(pn, pn.x₀, t_id)
+            pn.x₀.h[t_id] = zero(H)
+        end
+    end
+    return nothing
+end
+
 
 """
     fire!(pn::TPN, x::TPNState, t_id; check_ready=true)
@@ -343,23 +356,40 @@ function run!(pn::TPN, x, events; tmax=first(last(events)))
     return (;trace, states)
 end
 
-#=
-struct Model
-    num_monoflops::Integer
-    num_comparators::Integer
+"""
+    |(tpns::TPN{M,H}...) where {M,H}
 
-    x₀::State
+Combines multiple TPNs together.
+
+This procedure:
+- merges transitions by adding arcs, 
+- merges earliest and last firing times by taking the more restrictive bounds,
+- merges initial tokens by adding them together
+
+"""
+function Base.:|(tpns::TPN{M,H}...) where {M,H}
+    all_places = union((tpn.P for tpn in tpns)...)
+    all_transitions = union((tpn.T for tpn in tpns)...)
+    all_R = spzeros(M, length(all_places), length(all_transitions))
+    all_ΔF = spzeros(M, length(all_places), length(all_transitions))
+    all_eft = zeros(H, length(all_transitions))
+    all_lft = fill(typemax(H), length(all_transitions))
+    all_m₀ = zeros(M, length(all_places))
+    
+    # merge transitions by adding arcs, 
+    # merge earliest and last firing times by taking the more restrictive bounds,
+    # merge initial tokens by adding them together
+    for tpn in tpns
+        # map the TPN's places and transitions to the new places and transitions
+        p_idx = indexin(tpn.P, all_places)
+        t_idx = indexin(tpn.T, all_transitions)
+        R = tpn.C + tpn.ΔF .* (tpn.ΔF .< 0)
+        all_R[p_idx,t_idx] += R
+        all_ΔF[p_idx,t_idx] += tpn.ΔF
+        all_eft[t_idx] .= max(all_eft[t_idx], tpn.eft)
+        all_lft[t_idx] .= min(all_eft[t_idx], tpn.lft)
+        all_m₀[p_idx] .+= tpn.x₀.m
+    end
+
+    TPN(all_places, all_transitions, all_R, all_ΔF, all_eft, all_lft, all_m₀)
 end
-
-use BitVector
-# State of the mono-flops:
-state_monoflops = zeros(Bool, num_monoflops)
-state_counters = zero(Int, num_counters)
-state_full = zeros(Int, 2*num_monoflops + num_counters)
-
-function update!(state_full, state_monoflops, state_counters)
-    state_full[1:2:2num_monoflops] .= state_monoflops
-    state_full[2:2:2num_monoflops] .= !.(state_monoflops)
-    state_full
-end
-=#

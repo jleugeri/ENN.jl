@@ -2,7 +2,7 @@ import ..TimePetriNets
 
 using SparseArrays
 
-function TimePetriNets.TPN(n::Neuron, name=:spike, τ_spike::H=1, τ_psp::H=τ_spike, τ_plateau::H=100; M=Int) where H
+function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_spike, τ_plateau::H=100; M=Int) where H
     # collect all places and transitions
     P = Symbol[]
     T = Symbol[]
@@ -73,9 +73,9 @@ function TimePetriNets.TPN(n::Neuron, name=:spike, τ_spike::H=1, τ_psp::H=τ_s
         # Add all synapses
         for inp in seg.inputs
             # Add trigger, on and off place
-            syn_trigger = add_place("seg_$(name)_$(seg.name)_$(inp)_trigger", 0)
-            syn_on = add_place("seg_$(name)_$(seg.name)_$(inp)_on", 0)
-            syn_off = add_place("seg_$(name)_$(seg.name)_$(inp)_off", 1)
+            syn_trigger = add_place("syn_$(name)_$(seg.name)_$(inp)_trigger", 0)
+            syn_on = add_place("syn_$(name)_$(seg.name)_$(inp)_on", 0)
+            syn_off = add_place("syn_$(name)_$(seg.name)_$(inp)_off", 1)
             
             # Add on and off transition
             syn_start = add_transition("seg_$(name)_$(seg.name)_$(inp)_start", 0, 0)
@@ -123,4 +123,38 @@ function TimePetriNets.TPN(n::Neuron, name=:spike, τ_spike::H=1, τ_psp::H=τ_s
     ΔF = sparse(collect.(zip(ΔF...))..., M, N)
     
     TimePetriNets.TPN(P,T,R,ΔF,eft,lft,m₀)
+end
+
+
+function TimePetriNets.TPN(net::NeuralNetwork, args...;kwargs...)
+    # construct all neurons' tpns
+    neuron_tpns = [TimePetriNets.TPN(neuron,name,args...;kwargs...) for (name,neuron) in pairs(net.neurons)]
+    # combine synapse and neuron tpns into one tpn
+    net_tpn = |(neuron_tpns...)
+
+    # add synapses between the neurons
+    for (source_name,synapses) in net.synapses
+        # find the spike-start transition of the source neuron
+        src_idx = findfirst(==(Symbol("spike_$(source_name)_start")), net_tpn.T)
+        for synapse in synapses
+            if synapse.type == :exc
+                (dendrite,input) = synapse.target
+                # traverse to the soma
+                neuron = dendrite
+                while !isa(neuron[],Neuron)
+                    neuron = neuron[].parent
+                end
+                neuron_name=findfirst(==(neuron[]),net.neurons)
+
+                tgt_idx = findfirst(==(Symbol("syn_$(neuron_name)_$(dendrite[].name)_$(input)_trigger")), net_tpn.P)
+                
+                # add arc from transition to trigger place
+                net_tpn.ΔF[tgt_idx, src_idx] += 1
+            end
+        end
+    end
+
+    # update TPN
+    TimePetriNets.update!(net_tpn)
+    return net_tpn
 end

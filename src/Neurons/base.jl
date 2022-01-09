@@ -1,4 +1,4 @@
-export SomaOrDendrite, DendriteSegment, Neuron
+export SomaOrDendrite, DendriteSegment, Neuron, Synapse, NeuralNetwork
 
 abstract type SomaOrDendrite end
 
@@ -49,4 +49,33 @@ struct Neuron <: SomaOrDendrite
         dendrite.parent[]=this
         this
     end
+end
+
+
+struct Synapse
+    source::Ref{Neuron}
+    target::Tuple{Ref{DendriteSegment},Symbol}
+    type::Symbol
+end
+
+struct NeuralNetwork
+    neurons::Dict{Symbol,Neuron}
+    synapses::Dict{Symbol,Vector{Synapse}}
+end
+
+function NeuralNetwork(neurons, synapses::Dict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
+    _synapses = Dict{Symbol,Vector{Synapse}}()
+    for (source_name, terminals) in pairs(synapses)
+        _terminals = getkey(_synapses, source_name, Synapse[])
+        src = neurons[source_name]
+        for (target_neuron_name,target_segment_name,target_spine_name,attrs...) in terminals
+            tgt_n = neurons[target_neuron_name]
+            idx = findfirst(seg->seg.name==target_segment_name,tgt_n.all_segments)
+            tgt = tgt_n.all_segments[idx]
+            syn = Synapse(Ref(src), (Ref(tgt), target_spine_name), attrs...)
+            push!(_terminals, syn)
+        end
+        _synapses[source_name] = _terminals
+    end
+    NeuralNetwork(neurons,_synapses)
 end
