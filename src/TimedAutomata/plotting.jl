@@ -1,4 +1,4 @@
-using Graphs, CairoMakie, GraphMakie
+using Graphs, Makie, GraphMakie
 
 function GraphMakie.graphplot(ta::TA, args...; show_guards=true, show_invariants=false, show_resets=true, show_messages=(MSG_IN,MSG_OUT), nlabels_align=(:center,:bottom), nlabels_distance=25, elabels_distance=5, kwargs...)
     g = SimpleDiGraph(length(ta.states))

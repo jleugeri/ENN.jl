@@ -1,4 +1,4 @@
-using TimedAutomata, GLMakie, GraphMakie
+using TimedAutomata, GraphMakie
 ##
 
 states = ["S0", "S1", "S2", "S3"]
