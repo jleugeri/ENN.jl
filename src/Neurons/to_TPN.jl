@@ -31,7 +31,7 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
     while !isempty(queue)
         (seg,parent_counter,parent_trans) = pop!(queue)
         
-        # Add on-place and off-place
+        ## Add on-place and off-place
         seg_on = add_place("seg_$(name)_$(seg.name)_on", 0)
         seg_off = add_place("seg_$(name)_$(seg.name)_off", 1)
 
@@ -43,7 +43,7 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
         den_counter = length(seg.children) <= 1 ? nothing : 
             add_place("seg_$(name)_$(seg.name)_den", 0)
 
-        # Add on and off transition        
+        ## Add on and off transition        
         (start_name,stop_name,reset_name,time) = if isnothing(parent_counter) && isnothing(parent_trans)
             "spike_$(name)_start", "spike_$(name)_stop", "spike_$(name)_reset", τ_spike
         else
@@ -73,12 +73,12 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
         push!(ΔF,(seg_off,  seg_reset,   1))
         push!(ΔF,(seg_on,   seg_reset,  -1))
 
-        # Add inhibitory synapse
-        
+        ## Add inhibitory synapse
         # Add trigger, on and off place
-        inh_trigger = add_place("inh_$(name)_$(seg.name)_$(inp)_trigger", 0)
-        inh_on = add_place("inh_$(name)_$(seg.name)_$(inp)_on", 0)
-        inh_off = add_place("inh_$(name)_$(seg.name)_$(inp)_off", 1)
+        inp = :inh
+        inh_trigger = add_place("syn_$(name)_$(seg.name)_$(inp)_trigger", 0)
+        inh_on = add_place("syn_$(name)_$(seg.name)_$(inp)_on", 0)
+        inh_off = add_place("syn_$(name)_$(seg.name)_$(inp)_off", 1)
         
         # Add on and off transition
         syn_start = add_transition("seg_$(name)_$(seg.name)_$(inp)_start", 0, 0)
@@ -99,7 +99,7 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
 
 
         
-        # Add all excitatory synapses
+        ## Add all excitatory synapses
         for inp in seg.inputs
             # Add trigger, on and off place
             syn_trigger = add_place("syn_$(name)_$(seg.name)_$(inp)_trigger", 0)
@@ -166,20 +166,21 @@ function TimePetriNets.TPN(net::NeuralNetwork, args...;kwargs...)
         # find the spike-start transition of the source neuron
         src_idx = findfirst(==(Symbol("spike_$(source_name)_start")), net_tpn.T)
         for synapse in synapses
-            if synapse.type == :exc
-                (dendrite,input) = synapse.target
-                # traverse to the soma
-                neuron = dendrite
-                while !isa(neuron[],Neuron)
-                    neuron = neuron[].parent
-                end
-                neuron_name=findfirst(==(neuron[]),net.neurons)
-
-                tgt_idx = findfirst(==(Symbol("syn_$(neuron_name)_$(dendrite[].name)_$(input)_trigger")), net_tpn.P)
-                
-                # add arc from transition to trigger place
-                net_tpn.ΔF[tgt_idx, src_idx] += 1
+            (dendrite,input) = synapse.target
+            # traverse to the soma
+            neuron = dendrite
+            while !isa(neuron[],Neuron)
+                neuron = neuron[].parent
             end
+            neuron_name=findfirst(==(neuron[]),net.neurons)
+
+            if synapse.type == :inh
+                input = :inh
+            end
+
+            tgt_idx = findfirst(==(Symbol("syn_$(neuron_name)_$(dendrite[].name)_$(input)_trigger")), net_tpn.P)
+            # add arc from transition to trigger place
+            net_tpn.ΔF[tgt_idx, src_idx] += 1
         end
     end
 

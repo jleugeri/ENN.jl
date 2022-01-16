@@ -10,8 +10,8 @@ net = NeuralNetwork(
         :n2 => n2
     ),
     Dict(
-        :n1 => [(:n1, :A, :A1, :exc), (:n2, :A, :trig, :exc)],
-        :n2 => [(:n1, :B, :B1, :exc), (:n1, :B, :B2, :exc)],
+        :n1 => [(:n1, :A, :A1), (:n2, :A, :trig)],
+        :n2 => [(:n1, :B, :inh), (:n1, :B, :B2)],
     )
 )
 net_tpn = TPN(net)
