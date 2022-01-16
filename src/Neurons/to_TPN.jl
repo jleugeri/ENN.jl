@@ -44,18 +44,20 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
             add_place("seg_$(name)_$(seg.name)_den", 0)
 
         # Add on and off transition        
-        (start_name,stop_name,time) = if isnothing(parent_counter) && isnothing(parent_trans)
-            "spike_$(name)_start", "spike_$(name)_stop", τ_spike
+        (start_name,stop_name,reset_name,time) = if isnothing(parent_counter) && isnothing(parent_trans)
+            "spike_$(name)_start", "spike_$(name)_stop", "spike_$(name)_reset", τ_spike
         else
-            "seg_$(name)_$(seg.name)_start", "seg_$(name)_$(seg.name)_stop", τ_plateau
+            "seg_$(name)_$(seg.name)_start", "seg_$(name)_$(seg.name)_stop", "seg_$(name)_$(seg.name)_reset", τ_plateau
         end
         seg_start = add_transition(start_name, 0, 0)
         seg_stop = add_transition(stop_name, time, time)
+        seg_reset = add_transition(reset_name, 0, 0)
         
         # if there is a parent counter, update it, too
         if !isnothing(parent_counter)
             push!(ΔF,(parent_counter,   seg_start,  1))
             push!(ΔF,(parent_counter,   seg_stop,  -1))
+            push!(ΔF,(parent_counter,   seg_reset,  -1))
         end
 
         # if there is a parent transaction, make it sensitive to this plateau
@@ -68,9 +70,36 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
         push!(ΔF,(seg_on,   seg_start,   1))
         push!(ΔF,(seg_off,  seg_stop,    1))
         push!(ΔF,(seg_on,   seg_stop,   -1))
+        push!(ΔF,(seg_off,  seg_reset,   1))
+        push!(ΔF,(seg_on,   seg_reset,  -1))
+
+        # Add inhibitory synapse
+        
+        # Add trigger, on and off place
+        inh_trigger = add_place("inh_$(name)_$(seg.name)_$(inp)_trigger", 0)
+        inh_on = add_place("inh_$(name)_$(seg.name)_$(inp)_on", 0)
+        inh_off = add_place("inh_$(name)_$(seg.name)_$(inp)_off", 1)
+        
+        # Add on and off transition
+        syn_start = add_transition("seg_$(name)_$(seg.name)_$(inp)_start", 0, 0)
+        syn_stop = add_transition("seg_$(name)_$(seg.name)_$(inp)_stop", τ_psp, τ_psp)
+        
+        # Set token changes for transitions
+        push!(ΔF,(inh_trigger,  inh_start,  -1))
+        push!(ΔF,(inh_off,      inh_start,  -1))
+        push!(ΔF,(inh_on,       inh_start,   1))
+        push!(ΔF,(inh_off,      inh_stop,    1))
+        push!(ΔF,(inh_on,       inh_stop,   -1))
+        
+        # Make start transition sensitive to inhibitory synaptic input
+        push!(R,(inh_off,seg_start,1))
+        
+        # Make reset transition sensitive to inhibitory synaptic input
+        push!(R,(inh_on,seg_reset,1))
 
 
-        # Add all synapses
+        
+        # Add all excitatory synapses
         for inp in seg.inputs
             # Add trigger, on and off place
             syn_trigger = add_place("syn_$(name)_$(seg.name)_$(inp)_trigger", 0)
@@ -97,7 +126,7 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
             end
         end
 
-        # Make start transition sensitive to synaptic input
+        # Make start transition sensitive to excitatory synaptic input
         if !isnothing(syn_counter)
             push!(R,(syn_counter,seg_start,seg.synaptic_threshold))
         end
