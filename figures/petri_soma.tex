@@ -1,0 +1,98 @@
+\documentclass[border = 0.2cm]{standalone}
+\usepackage{tikz}
+\usepackage{amsmath,amssymb}
+
+\usepackage[clock]{ifsym}
+\usetikzlibrary{positioning,
+    fit,
+    calc,
+    petri,
+    arrows.meta, 
+    matrix, 
+    patterns,
+    decorations,
+    decorations.pathmorphing,
+    decorations.pathreplacing
+}
+
+
+\usepackage{pifont}
+\newcommand{\vmark}{\ding{51}}
+\newcommand{\xmark}{\ding{55}}
+ 
+\begin{document}
+
+\newcommand{\drawSomaNet}[5]{
+\begin{scope}[#1]
+    \node[place,tokens=#2, label=below left:off] (off) {};
+    \node[place,tokens=#3, right=of off, label=below right:refrac.] (on) {};
+    \coordinate (midpoint) at ($(off)!0.5!(on)$);
+    \node[transition, above=of midpoint, label={[align=center]below:fire!\\$\langle 0 \rangle$}] (start) {#4};
+    \node[transition, below=0.75cm of midpoint, label={[align=center]below:recover!\\$\langle \rho \rangle$}] (stop) {#5};
+    
+    \draw[bend left=30] 
+        (off) edge[post] (start) 
+        (start) edge[post] (on) 
+        (on) edge[post] (stop) 
+        (stop) edge[post] (off);
+\end{scope}
+}
+
+\newcommand{\drawBlock}[6]{
+\begin{scope}[#1]
+    \node[#3, label={[name=l1] below:#4}] (x#2){};
+    \node[#3, right=of x#2, label={[name=l2] below:#5}] (y#2){};
+    \node[fit=(x#2)(y#2)(l1)(l2)] (box){};
+    \node[below=-1mm of box.south, anchor=north] (label){#6};
+    \node[fit=(x#2)(y#2)(l1)(l2)(label), draw, solid, rounded corners=2mm] (box#2){};
+\end{scope}
+}
+
+
+
+\begin{tikzpicture}[
+    on grid,
+    node distance= 1.25cm,
+    every transition/.style={
+        inner sep=1mm,
+        align=center,
+        minimum width=5mm,
+        minimum height=5mm
+    },
+    every place/.style={
+        inner sep=1mm,
+        align=center,
+        minimum width=5mm,
+        minimum height=5mm
+    },
+]
+    \matrix[row sep=2mm, column sep=1.5cm](mat){
+        \drawBlock{dashed, local bounding box=exc1}{exc1}{transition}{start!}{stop!}{synapse 1} &
+        \\
+        \drawBlock{dashed, local bounding box=exc2}{exc2}{transition}{start!}{stop!}{synapse 2} &
+        \\
+        \drawBlock{dashed, local bounding box=exc3}{exc3}{transition}{start!}{stop!}{synapse 3} &
+        \drawBlock{dashed, local bounding box=inh}{inh}{place}{off}{on}{inhib. syn.} \\
+    };
+    \node[below=0mm of boxexc3.south](dots){\Huge\vdots};
+    
+    \node[place, above=1cm of boxexc1.north, label={[align=center]below:summed\\EPSPs}] (syncounter) {};
+    
+    \drawSomaNet{shift={($(syncounter.center)+(3.25cm,-1.5cm)$)}}{1}{0}{}{}
+
+    % Draw all the counter arcs
+    \draw[post] (xexc1) .. controls ($(xexc1) + (-7.5mm,0)$) and ($(syncounter) + (-1.2cm,-5mm)$) ..  (syncounter);
+    \draw[post] (xexc2) .. controls ($(xexc2) + (-1.25cm,0)$) and ($(syncounter) + (-1.7cm,-2.5mm)$) ..  (syncounter);
+    \draw[post] (xexc3) .. controls ($(xexc3) + (-1.5cm,0)$) and ($(syncounter) + (-2.2cm,+2.5mm)$) ..  (syncounter);
+    \draw[pre] (yexc1) .. controls ($(yexc1) + (7.5mm,0)$) and ($(syncounter) + (1.2cm,-5mm)$) ..  (syncounter);
+    \draw[pre] (yexc2) .. controls ($(yexc2) + (1.25cm,0)$) and ($(syncounter) + (1.7cm,-2.5mm)$) ..  (syncounter);
+    \draw[pre] (yexc3) .. controls ($(yexc3) + (1.5cm,0)$) and ($(syncounter) + (2.2cm,+2.5mm)$) ..  (syncounter);
+    
+    % Draw all the read arcs
+    \draw[post, double, double distance=1pt] (xinh) .. controls ($(xinh) + (-1.5cm,0)$) and ($(start) + (-2.2cm,-2.5mm)$) ..  (start);
+    \draw[post, double, double distance=1pt] (syncounter) .. controls +(30:10mm) and +(150:10mm) .. node[sloped,midway,above] {$\times n$} (start);    
+
+
+\end{tikzpicture}
+
+\end{document}
