@@ -1,6 +1,7 @@
 *.jl.cov
 *.jl.*.cov
 *.jl.mem
+*.synctex.gz
 deps/deps.jl
 reading/*
 notes/*

@@ -81,8 +81,8 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
         inh_off = add_place("syn_$(name)_$(seg.name)_$(inp)_off", 1)
         
         # Add on and off transition
-        syn_start = add_transition("seg_$(name)_$(seg.name)_$(inp)_start", 0, 0)
-        syn_stop = add_transition("seg_$(name)_$(seg.name)_$(inp)_stop", τ_psp, τ_psp)
+        inh_start = add_transition("seg_$(name)_$(seg.name)_$(inp)_start", 0, 0)
+        inh_stop = add_transition("seg_$(name)_$(seg.name)_$(inp)_stop", τ_psp, τ_psp)
         
         # Set token changes for transitions
         push!(ΔF,(inh_trigger,  inh_start,  -1))

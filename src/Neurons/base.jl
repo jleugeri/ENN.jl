@@ -68,11 +68,12 @@ function NeuralNetwork(neurons, synapses::Dict{Symbol,Vector{X}}) where X <:Unio
     for (source_name, terminals) in pairs(synapses)
         _terminals = getkey(_synapses, source_name, Synapse[])
         src = neurons[source_name]
-        for (target_neuron_name,target_segment_name,target_spine_name,attrs...) in terminals
+        for (target_neuron_name,target_segment_name,target_spine_name, attrs...) in terminals
             tgt_n = neurons[target_neuron_name]
             idx = findfirst(seg->seg.name==target_segment_name,tgt_n.all_segments)
             tgt = tgt_n.all_segments[idx]
-            syn = Synapse(Ref(src), (Ref(tgt), target_spine_name), attrs...)
+            typ = target_spine_name==:inh ? :inh : :excitatory
+            syn = Synapse(Ref(src), (Ref(tgt), target_spine_name), typ, attrs...)
             push!(_terminals, syn)
         end
         _synapses[source_name] = _terminals

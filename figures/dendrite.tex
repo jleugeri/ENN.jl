@@ -1,0 +1,87 @@
+\documentclass[border = 2cm]{standalone}
+\usepackage{tikz}
+\usepackage{amsmath,amssymb}
+
+\usepackage[clock]{ifsym}
+\usetikzlibrary{positioning,
+    fit,
+    calc,
+    petri,
+    arrows.meta, 
+    matrix, 
+    patterns,
+    decorations,
+    decorations.pathmorphing,
+    decorations.pathreplacing
+}
+\usepackage{ifthen}
+
+\begin{document}
+
+\newcommand{\drawNeuron}[3]{
+    \coordinate (root) at #2;
+    \xdef\prevL{root};
+    \xdef\neuron{#1};
+
+    \foreach \dendrites [count=\row, remember=\row as \parentrow] in #3 {    
+        \foreach \parent/\connections [count=\branch] in \dendrites {    
+            \xdef\numbranches{\branch};
+        }
+
+        \coordinate[above left=1cm and (\numbranches-1)*3.75mm of \prevL] (start_row_\row);
+
+        \xdef\prevD{start_row_\row}
+
+
+        \foreach \parent/\connections [count=\branch] in \dendrites {    
+            \coordinate[right=7.5mm of \prevD] (start_branch_\branch);
+            \coordinate[below=3mm of start_branch_\branch] (tmp);
+            \xdef\prevD{start_branch_\branch}
+            \xdef\prev{tmp}
+
+            \foreach \val [count=\num] in \connections
+            {
+                \coordinate[above=3mm of \prev](base_\neuron_\row_\branch_\num);
+                \ifthenelse{\equal{\val}{0}}{}{
+                    \ifthenelse{\val>0}{
+                        \draw (base_\neuron_\row_\branch_\num)++(-1mm,0.7071mm) -- ++(-0.5mm,0) arc(45:315:1mm) -- ++(0.5mm,0) -- cycle; 
+                    }{
+                        \fill (base_\neuron_\row_\branch_\num)++(-1mm,0.7071mm) -- ++(-0.5mm,0) arc(45:315:1mm) -- ++(0.5mm,0) -- cycle; 
+                    }
+                    \draw (base_\neuron_\row_\branch_\num)++(-2.207mm,0)+(135:1mm) -- ++(-1.5mm,1.5mm) 
+                        coordinate(syn_\neuron_\row_\branch_\num);
+                };
+                \xdef\prev{base_\neuron_\row_\branch_\num}
+            };
+            \coordinate (tip_\neuron_\row_\branch) at (\prev);
+
+
+            \ifthenelse{\row>1}{
+                \draw[black, rounded corners=1mm] (start_branch_\branch)+(-1mm,-3mm) rectangle ($(tip_\neuron_\row_\branch)+(1mm,3mm)$);
+            }{
+                \draw[black] (start_branch_\branch)+(-1mm,-3mm) arc(117.56:423.43:2mm) [rounded corners=1mm] -- ($(tip_\neuron_\row_\branch)+(1mm,3mm)$) -- ++(-2mm,0) [rounded corners=0] -- cycle;
+                \draw (start_branch_\branch)++(0mm,-6.75mm) -- ++(0,-1.5mm) coordinate(axon_\neuron);
+            }
+            
+            \ifthenelse{\row>1}{
+                \path ($(start_branch_\branch)!0.5!(tip_\neuron_\parentrow_\parent)$) coordinate(tmp1);
+                \path (tmp1 -| tip_\neuron_\parentrow_\parent) coordinate(tmp2);
+                \draw[black] (start_branch_\branch)+(0,-3mm) |- (tmp2) -- ($(tip_\neuron_\parentrow_\parent)+(0,3mm)$);
+            }{}
+        }
+
+        \path (\prev -| start_row_\row) coordinate(stop_row_\row);
+        \xdef\prevL{stop_row_\row}
+    };
+}
+
+\begin{tikzpicture}[
+    on grid
+]
+    \drawNeuron{1}{(0,0)}{{{0/{1}},{1/{1,0,1,-1},1/{1,0,1,-1}},{1/{1,0,1,-1},1/{1,0,1,-1},1/{1,0,1,-1}}}}
+    \draw (axon_1) -- ++(-3cm,0) |- (syn_1_2_1_3);
+    \draw (axon_1) -- ++(-3cm,0) |- (syn_1_3_2_1);
+\end{tikzpicture}
+
+
+\end{document}
