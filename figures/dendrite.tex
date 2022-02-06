@@ -19,6 +19,7 @@
 \begin{document}
 
 \newcommand{\drawNeuron}[3]{
+    \begin{scope}[local bounding box = #1]
     \coordinate (root) at #2;
     \xdef\prevL{root};
     \xdef\neuron{#1};
@@ -73,6 +74,7 @@
         \path (\prev -| start_row_\row) coordinate(stop_row_\row);
         \xdef\prevL{stop_row_\row}
     };
+    \end{scope}
 }
 
 \begin{tikzpicture}[

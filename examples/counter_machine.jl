@@ -1,18 +1,13 @@
 using ENN.Neurons, ENN.TimePetriNets, GLMakie, GraphMakie
+GLMakie.activate()
 
-n1 = Neuron((((((),[:A1,:A2],:A),),[:B1,:B2],:B),),[:C1,:C2],:C)
-n2 = Neuron((((),[:B1,:B2],:B),),[:trig],:A)
-#tpn=TPN(neuron_sequential)
+counter_neurons = Dict((Symbol("c_$(i)")=>Neuron((((),[:input],:dendrite),),[:trigger],:soma) for i in 1:10)...)
+counter_ff_connections = Dict((Symbol("c_$(i)")=>[(Symbol("c_$(i+1)"),:dendrite,:input)] for i in 1:9)...)
+counter_trig_connections = Dict()
 
 net = NeuralNetwork(
-    Dict(
-        :n1 => n1,
-        :n2 => n2
-    ),
-    Dict(
-        :n1 => [(:n1, :A, :A1), (:n2, :A, :trig)],
-        :n2 => [(:n1, :B, :inh), (:n1, :B, :B2)],
-    )
+    counter_neurons,    
+    counter_ff_connections
 )
 net_tpn = TPN(net)
 
