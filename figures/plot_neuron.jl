@@ -297,7 +297,7 @@ tree = layout(neuron.dendrite)
 add_right_branch!(tree,TreeLayout(neuron.dendrite))
 tree
 ##
-neuron = Neuron((((((),[:A1,:A2,:A3,:A4],:E),((),[:A1,:A2],:F),((),[:A1,:A2],:G),((),[:A1,:A2],:G2)),[:B1,:B2],:B),((((),Symbol[],:C),),Symbol[],:C),(((((((),[:A1,:A2],:E),((),[:A1,:A2],:F),((),[:A1,:A2],:G))),Symbol[],:H),),Symbol[],:D)),[:C1,:C2],:A)
+neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[],:D)),[:A1,:A2],:A)
 tree = layout(neuron.dendrite)
 ##
 
@@ -358,91 +358,165 @@ function drawDendrite(bottom::Point{2,F}, width, height, cr; csegs=20, soma=fals
 end
 
 
-function draw_neuron!(ax, neuron; F=Float32, dend_width=F(0.1), syn_margin=dend_width, connector_kwargs=Dict(:linewidth=>5, :color=>:black), dendrite_kwargs=Dict(:strokewidth=>2, :color=>:silver, :strokecolor=>:black), synapse_kwargs=Dict(:strokewidth=>2, :strokecolor=>:black), csegs=20)
-    height(node::DendriteSegment) = (length(unique(node.inputs))+1+isa(node.parent[],Neuron))*syn_margin
+function draw_neuron!(ax, neuron; 
+        route_to_bottom=true, 
+        F=Float32, 
+        dend_width=F(0.1), 
+        syn_radius=dend_width/4, 
+        dend_margin=F(0.1), 
+        row_margin=F(0.1), 
+        syn_margin=dend_width, 
+        connector_kwargs=Dict(:linewidth=>5, :color=>:black), 
+        axons_in_kwargs=Dict(:linewidth=>3, :color=>:black), 
+        dendrite_kwargs=Dict(:strokewidth=>2, :color=>:silver, :strokecolor=>:black), 
+        synapse_kwargs=Dict(:strokewidth=>2, :strokecolor=>:black), 
+        csegs=20
+    )
+
+    hidedecorations!(ax)
+    ax.aspect[]=DataAspect()
+
+
+    function height(node::DendriteSegment)
+        if isa(node.parent[],Neuron)
+            (length(unique(node.inputs))+1)*syn_margin
+        else
+            (length(unique(flatten(n.inputs for n in node.parent[].children)))+1)*syn_margin
+        end
+    end
     width(node::DendriteSegment) = dend_width
 
-    tree = layout(neuron.dendrite; height=height, width=width)
+    tree = layout(neuron.dendrite; height, width, x_margin=dend_margin, y_margin=row_margin)
 
     connector_lines = Point{2,F}[]
-    dendrites = Vector{Point{2,F}}[]
-    spines = Vector{Point{2,F}}[]
+    dendrites = Dict{Symbol,Vector{Point{2,F}}}()
+    spines = Dict{Tuple{Symbol,Symbol},Vector{Point{2,F}}}()
+    
+    
+    all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
+    all_input_ys = Dict(name=>F[] for name in all_inputs)
+    
+    axons_in = Dict(name=>Point{2,F}[] for name in all_inputs)
+    input_x = if route_to_bottom
+        Dict(name=>minimum(tree.x_min) - dend_margin - syn_margin/2 * i for (i,name) in enumerate(all_inputs))
+    else
+        Dict(name=>minimum(tree.x_min) - dend_margin for name in all_inputs)
+    end
 
+    input_intersections = Dict(name=>F[] for name in all_inputs)
+    input_num = 0
     for (i,row) in enumerate(tree.rows)
 
         row_inputs = unique(flatten(node.node.inputs for clique in row for node in clique))
+        # sort in same order as overall
+        order = sortperm(Vector{Int}(indexin(row_inputs, all_inputs)))
+        permute!(row_inputs, order)
         input_y = Dict(v=>k*syn_margin for (k,v) in enumerate(row_inputs))
+        input_joint = Dict(
+            inp_name=>Point{2,F}(input_x[inp_name], input_y[inp_name] + tree.y_min[i] + syn_margin/2) for inp_name in row_inputs
+        )
 
+
+        row_input_num = input_num
+        row_input_ys = Dict(name=>F[] for name in row_inputs)
         for clique in row
             if isempty(clique)
                 continue
             end
+        
+            # target point
+            pt5 = (first(clique).position[] + last(clique).position[])/2 - Point{2,F}(zero(F),tree.y_margin[])
+            # joint
+            pt4 = pt5 + Point{2,F}(zero(F),tree.y_margin[]/3)
+            
+            for (j,node) in enumerate(clique)
+                # start points
+                pt1 = node.position[]
+                # knee points
+                pt2 = pt1 - Point{2,F}(zero(F),tree.y_margin[]/3)
+                # foot points
+                pt3 = (pt2 + pt5)/2
 
-            if i==1
-                pt1 = first(clique).position[]
-                yy = [input_y[inp] for inp  in first(clique).node.inputs]
-                sort!(yy, rev=true)
-                println(yy)
-                exc_syn = Point{2,F}[pt1+Point{2,F}(-dend_width/2, y) for y in yy]
-    
-                push!(spines, (excSynapse(foot, dend_width/4, dend_width/4; csegs) for foot in exc_syn)...)
-
-                push!(dendrites, drawDendrite(pt1, dend_width, tree.y_max[i]-tree.y_min[i], F(Inf); soma=true, csegs))
-            else
-                # target point
-                pt5 = (first(clique).position[] + last(clique).position[])/2 - Point{2,F}(zero(F),tree.y_margin[])
-                # joint
-                pt4 = pt5 + Point{2,F}(zero(F),tree.y_margin[]/3)
-
-                for (j,node) in enumerate(clique)
-                    # start points
-                    pt1 = node.position[]
-                    # knee points
-                    pt2 = pt1 - Point{2,F}(zero(F),tree.y_margin[]/3)
-                    # foot points
-                    pt3 = (pt2 + pt5)/2
-
-                    if j==1
-                        left_foot = pt3
-                    end
-                    if j==length(clique)
-                        right_foot = pt3
-                    end
-
+                if i>1
                     # add leg
                     push!(connector_lines, pt1, pt2, pt3, pt4, Point{2,F}(NaN,NaN))
-                    
-                    # add rounded rect + synapses
-                    yy = [input_y[inp] for inp  in node.node.inputs]
-                    sort!(yy, rev=true)
-                    println(yy)
-                    exc_syn = Point{2,F}[pt1+Point{2,F}(-dend_width/2, y) for y in yy]
-                    push!(spines, (excSynapse(foot, dend_width/3, dend_width/4; csegs) for foot in exc_syn)...)
-
-                    push!(dendrites, drawDendrite(pt1, dend_width, tree.y_max[i]-tree.y_min[i], F(Inf); csegs))
                 end
+
+                # add rounded rect + synapses
+                yy = [inp=>input_y[inp] for inp  in node.node.inputs]
+                sort!(yy, rev=true; by=last)
+                
+                for (inp_name,y) in yy
+                    foot = pt1+Point{2,F}(-dend_width/2, y)
+
+                    # check if this horizontal connector cuts through another vertical connector
+                    idx=searchsortedfirst(all_inputs, inp_name)
+                    row_input_num = max(idx,row_input_num)
+                    if idx <= input_num
+                        append!(input_intersections[inp_name],[y for l in (idx+1):input_num for y in all_input_ys[all_inputs[l]]])
+                    end
+
+                    push!(row_input_ys[inp_name], input_joint[inp_name][2])
+                    
+                    # add the horizontal connector
+                    pushfirst!(axons_in[inp_name], input_joint[inp_name], foot+Point{2,F}(-dend_margin/3-syn_margin/2,syn_margin/2), foot+Point{2,F}(-dend_margin/3-syn_radius*sqrt(2)/2,syn_radius*sqrt(2)/2), Point{2,F}(NaN,NaN))
+                    
+                    spines[(node.node.name,inp_name)] = excSynapse(foot, dend_margin/3, syn_radius; csegs)
+                end
+
+                dendrites[node.node.name] = drawDendrite(pt1, dend_width, tree.y_max[i]-tree.y_min[i], F(Inf); csegs, soma=i==1)
+            end
+
+            if i>1
                 # add vertical line
                 push!(connector_lines, pt4, pt5, Point{2,F}(NaN,NaN))
             end
         end
+        mergewith!(union, all_input_ys, row_input_ys)
+        input_num = row_input_num
     end
 
+    # prepare outputs
+    all_dendrites = Dict{Symbol,Any}()
+    all_axons = Dict{Symbol,Any}()
+    all_spines = Dict{Tuple{Symbol,Symbol},Any}()
+    all_ports = Dict{Symbol,Point{2,F}}()
+
+    # complete input axons
+    if route_to_bottom
+        for inp_name in all_inputs
+            arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in sort(unique(input_intersections[inp_name]))]
+            
+            port = Point{2,F}(input_x[inp_name], 0)
+            pushfirst!(axons_in[inp_name], port, flatten(arcs)...)
+            all_ports[inp_name] = port
+        end
+    end
+    
     #draw clique connectors
     lines!(ax, connector_lines; connector_kwargs...)
 
+
     # draw synapses
-    for spine in spines
-        poly!(ax, spine; synapse_kwargs...)
+    for (key,spine) in pairs(spines)
+        p=poly!(ax, spine; synapse_kwargs...)
+        all_spines[key] = p
     end
 
     # draw branches
-    for dendrite in dendrites
-        poly!(ax, dendrite; dendrite_kwargs...)
+    for (key,dendrite) in dendrites
+        p=poly!(ax, dendrite; dendrite_kwargs...)
+        all_dendrites[key] = p
     end
 
-
+    #draw incoming axons
+    for (key,axon_in) in pairs(axons_in)
+        l = lines!(ax, axon_in; axons_in_kwargs...)
+        all_axons[key] = l
+    end
+    return (;all_dendrites, all_axons, all_spines, all_ports)
 end
-draw_neuron!(ax, neuron)
+res= draw_neuron!(ax, neuron)
 display(f)
 ##
 
