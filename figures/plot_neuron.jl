@@ -297,7 +297,7 @@ tree = layout(neuron.dendrite)
 add_right_branch!(tree,TreeLayout(neuron.dendrite))
 tree
 ##
-neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[],:D)),[:A1,:A2],:A)
+neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
 tree = layout(neuron.dendrite)
 ##
 
@@ -323,10 +323,15 @@ ax = Axis(f[1, 1], aspect=DataAspect())
 (anglepoint(center::P, angle, radius) where {P}) = center + P(cos(angle),sin(angle))*radius
 
 
-function excSynapse(foot::Point{2,F}, dist, radius; csegs=20) where F
-    arc = anglepoint.(Ref(foot+Point{2,F}(-dist,0)), LinRange(pi/4, pi*7/4, csegs), radius)
+function excSynapse(foot::Point{2,F}, dist, radius; csegs=20, dir=:left) where F
     res = Point{2,F}[]
-    push!(res, foot+Point{2,F}(0,sqrt(2)*radius/2), arc..., foot-Point{2,F}(0,sqrt(2)*radius/2))
+    if dir == :left
+        arc = anglepoint.(Ref(foot+Point{2,F}(-dist,0)), LinRange(pi/4, pi*7/4, csegs), radius)
+        push!(res, foot+Point{2,F}(0,sqrt(2)*radius/2), arc..., foot-Point{2,F}(0,sqrt(2)*radius/2))
+    else
+        arc = anglepoint.(Ref(foot+Point{2,F}( dist,0)), LinRange(3pi/4, -3pi/4, csegs), radius)
+        push!(res, foot+Point{2,F}(0,sqrt(2)*radius/2), arc..., foot-Point{2,F}(0,sqrt(2)*radius/2))
+    end
     return res
 end
     
@@ -359,6 +364,7 @@ end
 
 
 function draw_neuron!(ax, neuron; 
+        portside=:both,
         route_to_bottom=true, 
         F=Float32, 
         dend_width=F(0.1), 
@@ -366,6 +372,7 @@ function draw_neuron!(ax, neuron;
         dend_margin=F(0.1), 
         row_margin=F(0.1), 
         syn_margin=dend_width, 
+        syn_stem=dend_width/3,
         connector_kwargs=Dict(:linewidth=>5, :color=>:black), 
         axons_in_kwargs=Dict(:linewidth=>3, :color=>:black), 
         dendrite_kwargs=Dict(:strokewidth=>2, :color=>:silver, :strokecolor=>:black), 
@@ -376,49 +383,147 @@ function draw_neuron!(ax, neuron;
     hidedecorations!(ax)
     ax.aspect[]=DataAspect()
 
-
-    function height(node::DendriteSegment)
-        if isa(node.parent[],Neuron)
-            (length(unique(node.inputs))+1)*syn_margin
-        else
-            (length(unique(flatten(n.inputs for n in node.parent[].children)))+1)*syn_margin
-        end
-    end
+    height₀(node::DendriteSegment) = one(F)
     width(node::DendriteSegment) = dend_width
 
+    # do initial layout to figure out horizontal placement
+    tree = layout(neuron.dendrite; height=height₀, width, x_margin=dend_margin, y_margin=row_margin)
+
+    all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
+    all_input_ys = Dict(name=>F[] for name in all_inputs)
+    axons_in = Dict(name=>Point{2,F}[] for name in all_inputs)
+    
+    # figure out on which side to draw the symbol wires
+    input_side = if portside == :left
+        Dict(name => :left for name in all_inputs)
+    elseif portside == :right
+        Dict(name => :right for name in all_inputs)
+    elseif portside == :both
+        res = Dict{Symbol,Symbol}()
+        # compute center of mass of synapse x-positions for each input symbol
+        center_of_mass = Dict{Symbol,F}()
+        for row in tree.rows
+            for clique in row
+                for node in clique
+                    for inp in node.node.inputs
+                        center_of_mass[inp] = get(center_of_mass, inp, zero(F))+node.position[][1]
+                    end
+                end
+            end
+        end
+
+        # assign side based on center of mass
+        for name in all_inputs
+            res[name] =  center_of_mass[name] <= 0 ? :left : :right
+        end
+        res
+    else
+        ArgumentError("'portside' must be either ':left', ':right' or ':both', not '$(portside)'.")
+    end  
+
+    isleft(name) = input_side[name]==:left
+    all_inputs_left = filter(isleft, all_inputs)
+    all_inputs_right = filter(!isleft, all_inputs)
+
+    # figure out which inputs can coexist on the left and right side
+    row_inputs_left_padded = Vector{Union{Nothing,Symbol}}[]
+    row_inputs_right_padded = Vector{Union{Nothing,Symbol}}[]
+    for row in tree.rows
+        from_left = Dict{Symbol,F}()
+        from_right = Dict{Symbol,F}()
+        # find rightmost and leftmost extent of left and right inputs, respectively
+        for clique in row
+            for node in clique
+                node_x = node.position[][1]
+                for input in node.node.inputs
+                    if isleft(input)
+                        from_left[input] = max(node_x,get(from_left,input,typemin(F)))
+                    else
+                        from_right[input] = min(node_x,get(from_right,input,typemax(F)))
+                    end
+                end
+            end
+        end
+
+        # sort left and right inputs to conform with the overall order
+        row_inputs = unique(flatten(node.node.inputs for clique in row for node in clique))
+        row_inputs_left = filter(isleft, row_inputs)
+        row_inputs_right = filter(!isleft, row_inputs)
+        order_left = sortperm(collect(indexin(row_inputs_left, all_inputs_left)))
+        order_right = sortperm(collect(indexin(row_inputs_right, all_inputs_right)))
+        permute!(row_inputs_left, order_left)
+        permute!(row_inputs_right, order_right)
+
+        # greedy algorithm: alternatingly place left and right if possible
+        left=true
+        order = NTuple{2,Union{Nothing,Symbol}}[]
+        while length(row_inputs_left) + length(row_inputs_right) > 0
+            next_left = isempty(row_inputs_left) ? nothing  : first(row_inputs_left)
+            next_right = isempty(row_inputs_right) ? nothing  : first(row_inputs_right)
+
+            if !isnothing(next_left) && !isnothing(next_right) && from_left[next_left] + syn_radius + syn_stem ≤ from_right[next_right]
+                # both inputs fit
+                push!(order,(next_left,next_right))
+                popfirst!(row_inputs_left)
+                popfirst!(row_inputs_right)
+            elseif left && !isnothing(next_left)
+                push!(order,(next_left,nothing))
+                popfirst!(row_inputs_left)
+            else
+                push!(order,(nothing,next_right))
+                popfirst!(row_inputs_right)
+            end
+            left != left
+        end
+        rl,rr = zip(order...)
+        push!(row_inputs_left_padded,collect(rl))
+        push!(row_inputs_right_padded,collect(rr))
+    end
+
+    # store for each node how tall the corresponding row is
+    node_height = Dict(
+        node.node.name => (length(row_inputs_left_padded[i])+1)*syn_margin 
+        for (i,row) in enumerate(tree.rows) for clique in row for node in clique
+    )
+    height(node::DendriteSegment) = node_height[node.name]
+
+    # re-layout with correct assigment of synapses to left and right side
     tree = layout(neuron.dendrite; height, width, x_margin=dend_margin, y_margin=row_margin)
 
     connector_lines = Point{2,F}[]
     dendrites = Dict{Symbol,Vector{Point{2,F}}}()
     spines = Dict{Tuple{Symbol,Symbol},Vector{Point{2,F}}}()
     
-    
-    all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
-    all_input_ys = Dict(name=>F[] for name in all_inputs)
-    
-    axons_in = Dict(name=>Point{2,F}[] for name in all_inputs)
-    input_x = if route_to_bottom
-        Dict(name=>minimum(tree.x_min) - dend_margin - syn_margin/2 * i for (i,name) in enumerate(all_inputs))
+
+
+    # if we route the signals all the way to the bottom, they should be staggered
+    if route_to_bottom
+        input_x = Dict(
+            (name=>minimum(tree.x_min) - dend_margin - syn_margin/2 * i for (i,name) in enumerate(all_inputs_left))...,
+            (name=>maximum(tree.x_max) + dend_margin + syn_margin/2 * i for (i,name) in enumerate(all_inputs_right))...
+        )
     else
-        Dict(name=>minimum(tree.x_min) - dend_margin for name in all_inputs)
+        input_x = Dict(
+            (name=>minimum(tree.x_min) - dend_margin for name in all_inputs_left)...,
+            (name=>maximum(tree.x_max) + dend_margin for name in all_inputs_right)...
+        )
     end
 
+    # compute, for each input, which other inputs (on the same side) it's vertical connector intersects with
     input_intersections = Dict(name=>F[] for name in all_inputs)
-    input_num = 0
+    
+    # iterate all rows
     for (i,row) in enumerate(tree.rows)
-
         row_inputs = unique(flatten(node.node.inputs for clique in row for node in clique))
-        # sort in same order as overall
-        order = sortperm(Vector{Int}(indexin(row_inputs, all_inputs)))
-        permute!(row_inputs, order)
-        input_y = Dict(v=>k*syn_margin for (k,v) in enumerate(row_inputs))
-        input_joint = Dict(
-            inp_name=>Point{2,F}(input_x[inp_name], input_y[inp_name] + tree.y_min[i] + syn_margin/2) for inp_name in row_inputs
+
+        # compute y-position for all inputs
+        input_y = Dict(
+            (v=>k*syn_margin + tree.y_min[i] + syn_margin/2 for (k,v) in enumerate(row_inputs_left_padded[i]) if !isnothing(v))...,
+            (v=>k*syn_margin + tree.y_min[i] + syn_margin/2 for (k,v) in enumerate(row_inputs_right_padded[i]) if !isnothing(v))...
         )
+        mergewith!(union, all_input_ys, input_y)
 
-
-        row_input_num = input_num
-        row_input_ys = Dict(name=>F[] for name in row_inputs)
+        # iterate all cliques in the row
         for clique in row
             if isempty(clique)
                 continue
@@ -429,39 +534,39 @@ function draw_neuron!(ax, neuron;
             # joint
             pt4 = pt5 + Point{2,F}(zero(F),tree.y_margin[]/3)
             
+            # iterate all nodes in the clique
             for (j,node) in enumerate(clique)
                 # start points
                 pt1 = node.position[]
+                node_x = pt1[1]
+
                 # knee points
                 pt2 = pt1 - Point{2,F}(zero(F),tree.y_margin[]/3)
                 # foot points
                 pt3 = (pt2 + pt5)/2
 
+                # add leg (if not root of the tree)
                 if i>1
-                    # add leg
                     push!(connector_lines, pt1, pt2, pt3, pt4, Point{2,F}(NaN,NaN))
                 end
 
-                # add rounded rect + synapses
-                yy = [inp=>input_y[inp] for inp  in node.node.inputs]
-                sort!(yy, rev=true; by=last)
+                # sort synapses by y-position
+                order = sortperm([input_y[inp] for inp in node.node.inputs])
+                node_inputs = node.node.inputs[order]
                 
-                for (inp_name,y) in yy
-                    foot = pt1+Point{2,F}(-dend_width/2, y)
-
-                    # check if this horizontal connector cuts through another vertical connector
-                    idx=searchsortedfirst(all_inputs, inp_name)
-                    row_input_num = max(idx,row_input_num)
-                    if idx <= input_num
-                        append!(input_intersections[inp_name],[y for l in (idx+1):input_num for y in all_input_ys[all_inputs[l]]])
-                    end
-
-                    push!(row_input_ys[inp_name], input_joint[inp_name][2])
+                # draw synapses
+                for inp_name in node_inputs
+                    foot = Point{2,F}(node_x + (isleft(inp_name) ? -dend_width/2 : dend_width/2), input_y[inp_name]- syn_margin/2)
                     
                     # add the horizontal connector
-                    pushfirst!(axons_in[inp_name], input_joint[inp_name], foot+Point{2,F}(-dend_margin/3-syn_margin/2,syn_margin/2), foot+Point{2,F}(-dend_margin/3-syn_radius*sqrt(2)/2,syn_radius*sqrt(2)/2), Point{2,F}(NaN,NaN))
+                    pushfirst!(axons_in[inp_name], 
+                        Point{2,F}(input_x[inp_name],input_y[inp_name]), 
+                        foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_margin/2), syn_margin/2), 
+                        foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_radius*sqrt(2)/2), syn_radius*sqrt(2)/2), 
+                        Point{2,F}(NaN,NaN)
+                    )
                     
-                    spines[(node.node.name,inp_name)] = excSynapse(foot, dend_margin/3, syn_radius; csegs)
+                    spines[(node.node.name,inp_name)] = excSynapse(foot, syn_stem, syn_radius; csegs, dir=input_side[inp_name])
                 end
 
                 dendrites[node.node.name] = drawDendrite(pt1, dend_width, tree.y_max[i]-tree.y_min[i], F(Inf); csegs, soma=i==1)
@@ -472,8 +577,6 @@ function draw_neuron!(ax, neuron;
                 push!(connector_lines, pt4, pt5, Point{2,F}(NaN,NaN))
             end
         end
-        mergewith!(union, all_input_ys, row_input_ys)
-        input_num = row_input_num
     end
 
     # prepare outputs
@@ -484,12 +587,25 @@ function draw_neuron!(ax, neuron;
 
     # complete input axons
     if route_to_bottom
-        for inp_name in all_inputs
-            arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in sort(unique(input_intersections[inp_name]))]
-            
+        potential_intersections = F[]
+        for inp_name in reverse(all_inputs_left)
+            input_intersections = sort(unique(filter(<(maximum(all_input_ys[inp_name])),potential_intersections)))
+            arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in input_intersections]
             port = Point{2,F}(input_x[inp_name], 0)
             pushfirst!(axons_in[inp_name], port, flatten(arcs)...)
             all_ports[inp_name] = port
+
+            append!(potential_intersections, all_input_ys[inp_name])
+        end
+        potential_intersections = F[]
+        for inp_name in reverse(all_inputs_right)
+            input_intersections = sort(unique(filter(<(maximum(all_input_ys[inp_name])),potential_intersections)))
+            arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in input_intersections]
+            port = Point{2,F}(input_x[inp_name], 0)
+            pushfirst!(axons_in[inp_name], port, flatten(arcs)...)
+            all_ports[inp_name] = port
+
+            append!(potential_intersections, all_input_ys[inp_name])
         end
     end
     
@@ -516,7 +632,7 @@ function draw_neuron!(ax, neuron;
     end
     return (;all_dendrites, all_axons, all_spines, all_ports)
 end
-res= draw_neuron!(ax, neuron)
+res= draw_neuron!(ax, neuron; portside=:left)
 display(f)
 ##
 
