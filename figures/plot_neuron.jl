@@ -1,150 +1,8 @@
-using GLMakie, Base.Iterators, LinearAlgebra
+#using GLMakie
+using CairoMakie
+using Base.Iterators, LinearAlgebra
 using ENN.Neurons, ENN.TimePetriNets
-##
-struct WireNet{P}
-    wires::Vector{Vector{P}}
-    wire_segments::Vector{Tuple{P,P}}
-end
-
-function intersectSegments(A::P, B::P, C::P, D::P)::Union{Nothing, P} where P
-    ΔAB = B-A
-    ΔAC = C-A
-    ΔAD = D-A
-
-    # fast check of bounding box
-    lu1 = min.(A,B)
-    ro1 = max.(A,B)
-    lu2 = min.(C,D)
-    ro2 = max.(C,D)
-    if any(ro2 .< lu1) || any(ro1 .< lu2)
-        # bounding boxes don't intersect -> no chance for overlap
-        return nothing
-    end
-
-    ΔAB′ = ΔAB/(ΔAB⋅ΔAB)
-
-    # get first projection
-    ρ1 = (ΔAB′⋅ΔAC)
-    δ1 = ΔAC-ρ1 * ΔAB
-    # get second projection
-    ρ2 = (ΔAB′⋅ΔAD)
-    δ2 = ΔAD-ρ2 * ΔAB
-
-    # check if both δ point in the same direction 
-    if δ1⋅δ2 > 0
-        # they point in the same direction -> no intersection
-        return nothing
-    else
-        # they point in opposite directions -> compute intersection
-        d1 = √(δ1⋅δ1)
-        d2 = √(δ2⋅δ2)
-        
-        d12 = d1+d2
-        if d12 ≈ 0
-            # CD  must lie on the line AB -> Error
-            AssertionError("Line segments $((A,B)) and $((C,D)) are colinear!")
-        end
-
-        ρ3 = d1 / d12 * (ρ2-ρ1) + ρ1
-        if 0.0 ≤ ρ3 ≤ 1.0
-            return A + ρ3 * ΔAB
-        else
-            return nothing
-        end
-    end
-end
-
-function splitSegment(p_start,p_end,p_split,r_split)
-    Δ1 = p_split-p_start
-    Δ2 = p_split-p_end
-    n1 = norm(Δ1)
-    n2 = norm(Δ2)
-
-    ret1 = n1 < r_split ? nothing : (p_start, p_split-r_split*Δ1/n1)
-    ret2 = n2 < r_split ? nothing : (p_split-r_split*Δ2/n2, p_end)
-    return ret1, ret2
-end
-
-##
-w1 = WireNet{Point2f}([[Point2f(0,0),Point2f(1,1)]],[])
-w2 = WireNet{Point2f}([[Point2f(0,1),Point2f(1,0),Point2f(0.5,1.0)]],[])
-
-f = Figure()
-ax = Axis(f[1, 1])
-
-wireNets = [w1,w2]
-
-function plot_wireNets(wireNets, bridge_radius=0.1)
-    wireSegments = [[[Tuple{Point2f,Point2f}[] for line in wire[1:end-1]] for wire in wireNet.wires] for wireNet in wireNets]
-    for (i,wireNet) in enumerate(wireNets)
-        for (j,wire) in enumerate(wireNet.wires)
-            for k in 1:length(wire)-1
-                segments = Union{Nothing, Tuple{Point2f,Point2f}}[(wire[k],wire[k+1])]
-                while !isempty(segments)
-                    segment = pop!(segments)
-                    split=false
-                    for wireNet2 in wireSegments[1:i-1]
-                        for wire2 in wireNet2
-                            for line2 in wire2
-                                for segment2 in line2
-                                    pt = intersectSegments(segment[1],segment[2],segment2[1],segment2[2])
-                                    if !isnothing(pt) 
-                                        (seg1,seg2) = splitSegment(segment[1], segment[2], pt, bridge_radius)
-                                        if !isnothing(seg2)
-                                            push!(segments, seg2)
-                                        end
-                                        if !isnothing(seg1)
-                                            push!(segments, seg1)
-                                        end
-                                        split=true
-                                        break
-                                    end
-                                end
-                                if split
-                                    break
-                                end
-                            end
-                            if split
-                                break
-                            end
-                        end
-                        if split
-                            break
-                        end
-                    end
-
-                    if !split
-                        push!(wireSegments[i][j][k], segment)
-                    end
-                end
-            end
-        end
-
-        l=linesegments!(ax, collect(flatten(flatten.(wireSegments[i]))))
-        
-        for wire in wireSegments[i]
-            for line in wire
-                for k in eachindex(line[1:end-1])
-                    p_start = line[k][2]
-                    p_end   = line[k+1][1]
-
-                    Δ = p_end-p_start
-                    slope = Δ[1] ≈ 0.0 ? sign(Δ[2])*π/2 : atan(Δ[2]/Δ[1])
-                    arc!(ax, 0.5*p_start + 0.5*p_end, 0.5*norm(Δ), slope+0, slope+π, color=l[:color])
-                end
-            end
-        end
-    end
-end
-
-struct NeuronModule{P}
-    ports_left::Dict{Symbol,P}
-    ports_right::Dict{Symbol,P}
-    ports_top::Dict{Symbol,P}
-    ports_bottom::Dict{Symbol,P}
-
-end
-
+CairoMakie.activate!()
 ##
 
 mutable struct TreeLayout{T,F}
@@ -159,8 +17,6 @@ end
 TreeLayout(root::T; pos::Point{2,F}=zero(Point2f), x_margin=0.1,y_margin=0.1, height=(_)->1.0, width=(_)->1.0) where {T,F} = 
     TreeLayout{T,F}([[[(node=root,position=Ref(pos))]]],F[pos[1]-width(root)/2],F[pos[1]+width(root)/2],F[pos[2]],F[pos[2]+height(root)],x_margin,y_margin)
 
-
-##
 function add_right_branch!(tree::TreeLayout{T,F}, branch::TreeLayout{T,F}; keep_centered=true) where {T,F}
     # add dummy root to right branch
     pushfirst!(branch.x_min, Inf)
@@ -223,7 +79,7 @@ function add_right_branch!(tree::TreeLayout{T,F}, branch::TreeLayout{T,F}; keep_
     root_width = tree.x_max[1] - tree.x_min[1]
     tree.x_min[1] = new_root_x - root_width/2
     tree.x_max[1] = new_root_x + root_width/2
-    tree.rows[1][1][1].position[] = Point{2,F}(new_root_x,zero(F))
+    tree.rows[1][1][1].position[] = Point{2,F}(new_root_x,tree.rows[1][1][1].position[][2])
 
     #maybe re-center the entire tree
     if keep_centered
@@ -240,8 +96,8 @@ function add_right_branch!(tree::TreeLayout{T,F}, branch::TreeLayout{T,F}; keep_
     nothing
 end
 
-function layout(dendrite::DendriteSegment; params...)
-    tree = TreeLayout(dendrite; params...)
+function layout(dendrite::DendriteSegment; pos=zero(Point2f), params...)
+    tree = TreeLayout(dendrite;pos, params...)
 
     for child in dendrite.children
         child_branch = layout(child; params...)
@@ -249,14 +105,6 @@ function layout(dendrite::DendriteSegment; params...)
     end
     return tree
 end
-
-##
-
-neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
-#tree = layout(neuron.dendrite)
-
-f = Figure()
-ax = Axis(f[1, 1], aspect=DataAspect())
 
 (anglepoint(center::P, angle, radius) where {P}) = center + P(cos(angle),sin(angle))*radius
 
@@ -312,7 +160,7 @@ end
         connector_kwargs=Dict(:linewidth=>5, :color=>:black), 
         axons_in_kwargs=Dict(:linewidth=>3, :color=>:black), 
         dendrite_kwargs=Dict(:strokewidth=>2, :color=>:silver, :strokecolor=>:black), 
-        synapse_kwargs=Dict(:strokewidth=>2, :strokecolor=>:black), 
+        spine_kwargs=Dict(:strokewidth=>2, :strokecolor=>:black), 
         csegs=20
     )
 end
@@ -325,14 +173,11 @@ function Makie.plot!(neuronplot::NeuronPlot)
     (;
         portside, route_to_bottom, dend_width, syn_radius, dend_margin, 
         row_margin, syn_margin, syn_stem, connector_kwargs, axons_in_kwargs, 
-        dendrite_kwargs, synapse_kwargs, csegs
+        dendrite_kwargs, spine_kwargs, csegs
     ) = neuronplot.attributes
 
     
     # prepare outputs
-    all_dendrites = Dict{Symbol,Any}()
-    all_axons = Dict{Symbol,Any}()
-    all_spines = Dict{Tuple{Symbol,Symbol},Any}()
     all_ports = Dict{Symbol,Point{2,F}}()
 
     #hidedecorations!(ax)
@@ -342,6 +187,8 @@ function Makie.plot!(neuronplot::NeuronPlot)
     dendrites = Observable(Dict{Symbol,Vector{Point{2,F}}}())
     spines = Observable(Dict{Tuple{Symbol,Symbol},Vector{Point{2,F}}}())
     axons_in = Observable(Dict{Symbol,Vector{Point{2,F}}}())
+    y_extent = Observable(zeros(F,2))
+    x_extent = Observable(zeros(F,2))
 
     onany(neuron,
         portside, route_to_bottom, dend_width, syn_radius, dend_margin, 
@@ -356,7 +203,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
         empty!(axons_in[])
 
         # do initial layout to figure out horizontal placement
-        tree = layout(neuron.dendrite; height=_->one(F), width=_->dend_width, x_margin=dend_margin, y_margin=row_margin)
+        tree = layout(neuron.dendrite; pos=Point{2,F}(zero(F),√(2)*dend_width/2), height=_->one(F), width=_->dend_width, x_margin=dend_margin, y_margin=row_margin)
 
         all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
         all_input_ys = Dict(name=>F[] for name in all_inputs)
@@ -451,12 +298,12 @@ function Makie.plot!(neuronplot::NeuronPlot)
 
         # store for each node how tall the corresponding row is
         node_height = Dict(
-            node.node.name => (length(row_inputs_left_padded[i])+1)*syn_margin 
+            node.node.name => (length(row_inputs_left_padded[i])+1)*syn_margin
             for (i,row) in enumerate(tree.rows) for clique in row for node in clique
         )
         
         # re-layout with correct assigment of synapses to left and right side
-        tree = layout(neuron.dendrite; height=node->node_height[node.name], width=x->dend_width, x_margin=dend_margin, y_margin=row_margin)
+        tree = layout(neuron.dendrite; pos=Point{2,F}(zero(F),√(2)*dend_width/2), height=node->node_height[node.name], width=x->dend_width, x_margin=dend_margin, y_margin=row_margin)
 
         # if we route the signals all the way to the bottom, they should be staggered
         if route_to_bottom
@@ -471,13 +318,16 @@ function Makie.plot!(neuronplot::NeuronPlot)
             )
         end
 
+        x_extent[] .= extrema(values(input_x))
+        y_extent[] .= (zero(F), tree.y_max[end])
+        notify(x_extent)
+        notify(y_extent)
+
         # compute, for each input, which other inputs (on the same side) it's vertical connector intersects with
         input_intersections = Dict(name=>F[] for name in all_inputs)
         
         # iterate all rows
         for (i,row) in enumerate(tree.rows)
-            row_inputs = unique(flatten(node.node.inputs for clique in row for node in clique))
-
             # compute y-position for all inputs
             input_y = Dict(
                 (v=>k*syn_margin + tree.y_min[i] + syn_margin/2 for (k,v) in enumerate(row_inputs_left_padded[i]) if !isnothing(v))...,
@@ -570,38 +420,46 @@ function Makie.plot!(neuronplot::NeuronPlot)
     # force update
     neuron[] = neuron[]
 
+    neuronplot[:x_extent] = x_extent
+    neuronplot[:y_extent] = y_extent
+
     #draw clique connectors
     lines!(neuronplot, @lift($(connector_lines).+Ref($(offset))); connector_kwargs[]...)
 
     # draw spines
-    neuronplot[:spines]=poly!(neuronplot, @lift([val.+ Ref($(offset)) for val in values($(spines))]); synapse_kwargs[]...)
+    col = pop!(spine_kwargs[], :color, :gray)
+    neuronplot[:spines_color] = @lift(Dict(name=>col for name in keys($(spines))))
+    neuronplot[:spines]=poly!(neuronplot, @lift([val.+ Ref($(offset)) for val in values($(spines))]); spine_kwargs[]...,
+        color=@lift([$(neuronplot[:spines_color])[key] for key in keys($(spines))]), spine_kwargs[]...)
     neuronplot[:spine_ids]=@lift(keys($(spines)))
 
     # draw branches
-    neuronplot[:dendrites]=poly!(neuronplot, @lift([val.+ Ref($(offset)) for val in values($(dendrites))]); dendrite_kwargs[]...)
+    col = pop!(dendrite_kwargs[], :color, :gray)
+    neuronplot[:dendrites_color] = @lift(Dict(name=>col for name in keys($(dendrites))))
+    neuronplot[:dendrites]=poly!(neuronplot, @lift([val.+ Ref($(offset)) for val in values($(dendrites))]); 
+        color=@lift([$(neuronplot[:dendrites_color])[key] for key in keys($(dendrites))]), dendrite_kwargs[]...)
     neuronplot[:dendrite_ids]=@lift(keys($(dendrites)))
-
+    
     #draw incoming axons
-    neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(axons_in)))...;]); axons_in_kwargs[]...)
-    neuronplot[:axon_ids]=@lift((keys($(axons_in)),length.(values($(axons_in)))))
+    col = pop!(axons_in_kwargs[], :color, :gray)
+    neuronplot[:axons_in_color] = @lift(Dict(name=>col for name in keys($(axons_in))))
+    neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(axons_in)))...;]); 
+        color=@lift([(fill($(neuronplot[:axons_in_color])[key], length(val)+1) for (key,val) in pairs($(axons_in)))...;]), axons_in_kwargs[]...)
+    neuronplot[:axons_in_ids]=@lift(collect(zip(keys($(axons_in)),length.(values($(axons_in))))))
+    neuronplot[:axons_in_ports] = @lift(Dict(key=>first(value) for (key, value) in pairs($(axons_in))))
 
-    # #draw incoming axons
-    # for (key,axon_in) in pairs(axons_in)
-    #     l = lines!(neuronplot, add_offset(axon_in); axons_in_kwargs[]...)
-    #     all_axons[key] = l
-    # end
-
+    neuronplot[:soma] = offset
 
     return neuronplot
 end
 
+##
+#=
+neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
 
+f = Figure()
+ax = Axis(f[1, 1], aspect=DataAspect())
 
 res= neuronplot!(ax, neuron, Point2f(0,0); portside=:both)
 display(f)
-
-
-##
-plot_wireNets([w1,w2])
-
-display(f)
+=#
