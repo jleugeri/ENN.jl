@@ -158,7 +158,7 @@ end
         syn_margin=0.1f0, 
         syn_stem=0.03f0,
         connector_kwargs=Dict(:linewidth=>5, :color=>:black), 
-        axons_in_kwargs=Dict(:linewidth=>3, :color=>:black), 
+        inputs_kwargs=Dict(:linewidth=>3, :color=>:black), 
         dendrite_kwargs=Dict(:strokewidth=>2, :color=>:silver, :strokecolor=>:black), 
         spine_kwargs=Dict(:strokewidth=>2, :strokecolor=>:black), 
         csegs=20
@@ -172,7 +172,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
 
     (;
         portside, route_to_bottom, dend_width, syn_radius, dend_margin, 
-        row_margin, syn_margin, syn_stem, connector_kwargs, axons_in_kwargs, 
+        row_margin, syn_margin, syn_stem, connector_kwargs, inputs_kwargs, 
         dendrite_kwargs, spine_kwargs, csegs
     ) = neuronplot.attributes
 
@@ -186,7 +186,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
     connector_lines = Observable(Point{2,F}[])
     dendrites = Observable(Dict{Symbol,Vector{Point{2,F}}}())
     spines = Observable(Dict{Tuple{Symbol,Symbol},Vector{Point{2,F}}}())
-    axons_in = Observable(Dict{Symbol,Vector{Point{2,F}}}())
+    inputs = Observable(Dict{Symbol,Vector{Point{2,F}}}())
     y_extent = Observable(zeros(F,2))
     x_extent = Observable(zeros(F,2))
 
@@ -200,14 +200,14 @@ function Makie.plot!(neuronplot::NeuronPlot)
         empty!(connector_lines[])
         empty!(dendrites[])
         empty!(spines[])
-        empty!(axons_in[])
+        empty!(inputs[])
 
         # do initial layout to figure out horizontal placement
         tree = layout(neuron.dendrite; pos=Point{2,F}(zero(F),√(2)*dend_width/2), height=_->one(F), width=_->dend_width, x_margin=dend_margin, y_margin=row_margin)
 
         all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
         all_input_ys = Dict(name=>F[] for name in all_inputs)
-        merge!(axons_in[], Dict(name=>Point{2,F}[] for name in all_inputs))
+        merge!(inputs[], Dict(name=>Point{2,F}[] for name in all_inputs))
         
         # figure out on which side to draw the symbol wires
         input_side = if portside == :left
@@ -371,7 +371,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
                         foot = Point{2,F}(node_x + (isleft(inp_name) ? -dend_width/2 : dend_width/2), input_y[inp_name]- syn_margin/2)
                         
                         # add the horizontal connector
-                        pushfirst!(axons_in[][inp_name], 
+                        pushfirst!(inputs[][inp_name], 
                             Point{2,F}(input_x[inp_name],input_y[inp_name]), 
                             foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_margin/2), syn_margin/2), 
                             foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_radius*sqrt(2)/2), syn_radius*sqrt(2)/2), 
@@ -398,7 +398,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
                 input_intersections = sort(unique(filter(<(maximum(all_input_ys[inp_name])),potential_intersections)))
                 arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in input_intersections]
                 port = Point{2,F}(input_x[inp_name], 0)
-                pushfirst!(axons_in[][inp_name], port, flatten(arcs)...)
+                pushfirst!(inputs[][inp_name], port, flatten(arcs)...)
                 all_ports[inp_name] = port
 
                 append!(potential_intersections, all_input_ys[inp_name])
@@ -408,7 +408,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
                 input_intersections = sort(unique(filter(<(maximum(all_input_ys[inp_name])),potential_intersections)))
                 arcs = [anglepoint.(Ref(Point{2,F}(input_x[inp_name], inter)), LinRange(3pi/2,pi/2,csegs), syn_margin/4) for inter in input_intersections]
                 port = Point{2,F}(input_x[inp_name], 0)
-                pushfirst!(axons_in[][inp_name], port, flatten(arcs)...)
+                pushfirst!(inputs[][inp_name], port, flatten(arcs)...)
                 all_ports[inp_name] = port
 
                 append!(potential_intersections, all_input_ys[inp_name])
@@ -441,12 +441,12 @@ function Makie.plot!(neuronplot::NeuronPlot)
     neuronplot[:dendrite_ids]=@lift(keys($(dendrites)))
     
     #draw incoming axons
-    col = pop!(axons_in_kwargs[], :color, :gray)
-    neuronplot[:axons_in_color] = @lift(Dict(name=>col for name in keys($(axons_in))))
-    neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(axons_in)))...;]); 
-        color=@lift([(fill($(neuronplot[:axons_in_color])[key], length(val)+1) for (key,val) in pairs($(axons_in)))...;]), axons_in_kwargs[]...)
-    neuronplot[:axons_in_ids]=@lift(collect(zip(keys($(axons_in)),length.(values($(axons_in))))))
-    neuronplot[:axons_in_ports] = @lift(Dict(key=>first(value) for (key, value) in pairs($(axons_in))))
+    col = pop!(inputs_kwargs[], :color, :gray)
+    neuronplot[:inputs_color] = @lift(Dict(name=>col for name in keys($(inputs))))
+    neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(inputs)))...;]); 
+        color=@lift([(fill($(neuronplot[:inputs_color])[key], length(val)+1) for (key,val) in pairs($(inputs)))...;]), inputs_kwargs[]...)
+    neuronplot[:inputs_ids]=@lift(collect(zip(keys($(inputs)),length.(values($(inputs))))))
+    neuronplot[:inputs_ports] = @lift(Dict(key=>first(value)+$(offset) for (key, value) in pairs($(inputs))))
 
     neuronplot[:soma] = offset
 

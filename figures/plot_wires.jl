@@ -8,7 +8,7 @@ CairoMakie.activate!()
 struct WireNet{P}
     specified_connections::Vector{Vector{Observable{P}}}
     connections::Observable{Vector{Vector{P}}}
-    function WireNet(connections::Vector{Vector{Q}}) where {P,Q<:Union{P,Observable{P}}}
+    function WireNet(connections::Vector{Vector{Q}};P=Point2f) where Q
         obs = filter(x->isa(x,Observable), collect(flatten(connections)))
         
         new_connections = Observable([
@@ -131,10 +131,10 @@ function Makie.plot!(wireplot::WirePlot)
     nets = wireplot[1][]
     net_names = keys(nets)
     all_wires = Dict((k=>Observable(Point2f[]) for k in net_names)...)
-    function update_wires!(nets...)
+    function update_wires!(bridge_radius, csegs, nets...)
         all_segments=[[Tuple{Point2f,Point2f}[] for connection in net] for net in nets]
         for (i,(key,net)) in enumerate(zip(net_names, nets))
-            line = all_wires[i][]
+            line = all_wires[key][]
             empty!(line)
             for (j,connection) in enumerate(net)
                 for k in 1:length(connection)-1
@@ -185,11 +185,11 @@ function Makie.plot!(wireplot::WirePlot)
                 end
                 push!(line, Point2f(NaN,NaN))
             end
-            notify(all_wires[i])
+            notify(all_wires[key])
         end
     end
-    onany(update_wires!, (net.connections for net in nets)...) 
-    notify(net1.connections)
+    onany(update_wires!, wireplot[:bridge_radius], wireplot[:csegs], (net.connections for net in values(nets))...) 
+    notify(first(values(nets)).connections)
 
     col = get(wireplot.attributes,:color,Observable(:black))
     wireplot[:net_color] = Dict(name=>to_value(col) for name in keys(all_wires))

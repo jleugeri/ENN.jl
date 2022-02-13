@@ -54,7 +54,7 @@ end
 
 
 struct Synapse
-    source::Ref{Neuron}
+    source::Union{Ref{Neuron},Nothing}
     target::Tuple{Ref{Neuron},Symbol}
     target_dendrites::Vector{Ref{DendriteSegment}}
     type::Symbol
@@ -62,12 +62,26 @@ end
 
 struct NeuralNetwork
     neurons::Dict{Symbol,Neuron}
+    inputs::Dict{Symbol,Vector{Synapse}}
+    outputs::Dict{Symbol,Symbol}
     synapses::Dict{Symbol,Vector{Synapse}}
 end
 
-function NeuralNetwork(neurons, synapses::Dict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
+function NeuralNetwork(neurons, inputs::Dict{Symbol,Vector{X}}, outputs::Dict{Symbol,Symbol}, synapses::Dict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
     for (name,neuron) in pairs(neurons)
         neuron.name[] = name
+    end
+
+    _inputs = Dict{Symbol,Vector{Synapse}}()
+    for (source_name, terminals) in pairs(inputs)
+        _terminals = getkey(_inputs, source_name, Synapse[])
+        for (target_neuron_name,target_port_name, typ, attrs...) in terminals
+            tgt_n = neurons[target_neuron_name]
+            idxs = findall(seg->target_port_name ∈ seg.inputs,tgt_n.all_segments)
+            syn = Synapse(nothing, (Ref(tgt_n), target_port_name), [Ref(tgt_n.all_segments[idx]) for idx in idxs], typ, attrs...)
+            push!(_terminals, syn)
+        end
+        _inputs[source_name] = _terminals
     end
 
     _synapses = Dict{Symbol,Vector{Synapse}}()
@@ -82,5 +96,5 @@ function NeuralNetwork(neurons, synapses::Dict{Symbol,Vector{X}}) where X <:Unio
         end
         _synapses[source_name] = _terminals
     end
-    NeuralNetwork(neurons,_synapses)
+    NeuralNetwork(neurons, _inputs, outputs, _synapses)
 end
