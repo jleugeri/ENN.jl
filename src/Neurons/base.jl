@@ -1,5 +1,5 @@
 export SomaOrDendrite, DendriteSegment, Neuron, Synapse, NeuralNetwork
-
+using DataStructures
 abstract type SomaOrDendrite end
 
 struct DendriteSegment <: SomaOrDendrite
@@ -61,18 +61,18 @@ struct Synapse
 end
 
 struct NeuralNetwork
-    neurons::Dict{Symbol,Neuron}
-    inputs::Dict{Symbol,Vector{Synapse}}
-    outputs::Dict{Symbol,Symbol}
-    synapses::Dict{Symbol,Vector{Synapse}}
+    neurons::OrderedDict{Symbol,Neuron}
+    inputs::OrderedDict{Symbol,Vector{Synapse}}
+    outputs::OrderedDict{Symbol,Symbol}
+    synapses::OrderedDict{Symbol,Vector{Synapse}}
 end
 
-function NeuralNetwork(neurons, inputs::Dict{Symbol,Vector{X}}, outputs::Dict{Symbol,Symbol}, synapses::Dict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
+function NeuralNetwork(neurons, inputs::OrderedDict{Symbol,Vector{X}}, outputs::OrderedDict{Symbol,Symbol}, synapses::OrderedDict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
     for (name,neuron) in pairs(neurons)
         neuron.name[] = name
     end
 
-    _inputs = Dict{Symbol,Vector{Synapse}}()
+    _inputs = OrderedDict{Symbol,Vector{Synapse}}()
     for (source_name, terminals) in pairs(inputs)
         _terminals = getkey(_inputs, source_name, Synapse[])
         for (target_neuron_name,target_port_name, typ, attrs...) in terminals
@@ -84,7 +84,7 @@ function NeuralNetwork(neurons, inputs::Dict{Symbol,Vector{X}}, outputs::Dict{Sy
         _inputs[source_name] = _terminals
     end
 
-    _synapses = Dict{Symbol,Vector{Synapse}}()
+    _synapses = OrderedDict{Symbol,Vector{Synapse}}()
     for (source_name, terminals) in pairs(synapses)
         _terminals = getkey(_synapses, source_name, Synapse[])
         src = neurons[source_name]

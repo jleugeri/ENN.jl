@@ -1,13 +1,13 @@
-using CairoMakie
 using Base.Iterators, LinearAlgebra
-using DataStructures
+using DataStructures, IntervalSets
 using ENN.Neurons, ENN.TimePetriNets
-CairoMakie.activate!()
+
+# Optional dependencies from Requires.jl:
+using .GLMakie
 
 include("plot_neuron.jl")
 include("plot_wires.jl")
 
-##
 
 @recipe(NetPlot, net) do scene
     Attributes(
@@ -15,6 +15,7 @@ include("plot_wires.jl")
         csegs=20,
         axon_margin = 0.05,
         bridge_radius = 0.025,
+        neuron_margin = 0.1,
         input_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
         axon_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
         dendrite_colors = DefaultDict{Tuple{Symbol,Symbol},Union{Symbol,RGBf,RGBAf}}(:silver),
@@ -25,22 +26,21 @@ end
 function Makie.plot!(netplot::NetPlot)
     net = netplot[1][]
 
-    (; axon_margin, bridge_radius,csegs,linewidth) = netplot.attributes
+    (; axon_margin, bridge_radius,csegs,linewidth,neuron_margin) = netplot.attributes
     bridge_radius = bridge_radius[]
     axon_margin = axon_margin[]
     csegs=csegs[]
     linewidth=linewidth[]
+    neuron_margin=neuron_margin[]
 
-    neurons = Dict{Symbol,Combined{neuronplot, Tuple{Neuron, Point{2, Float32}}}}()
-    widths = Dict{Symbol,Observable{Vector{Float32}}}()
+    neurons = OrderedDict{Symbol,Combined{neuronplot, Tuple{Neuron, Point{2, Float32}}}}()
+    widths = OrderedDict{Symbol,Observable{Vector{Float32}}}()
     for (name,neuron) in pairs(net.neurons)
         n = neuronplot!(netplot, neuron, Point2f(0.0,0.0); bridge_radius,csegs,inputs_kwargs=Dict(:linewidth=>linewidth))
         neurons[name]=n
         widths[name]=n[:x_extent]
         netplot[Symbol("neuron_$(name)")] = n
     end
-
-    neuron_margin = 0.1
 
     onany(values(widths)...) do _widths...
         offset = neuron_margin
@@ -55,7 +55,7 @@ function Makie.plot!(netplot::NetPlot)
     notify(first(values(widths)))
 
     # layout axons
-    horizontal_axons=NamedTuple{(:name,:x_min,:x_max, :tgts),Tuple{Symbol,Float32,Float32, Vector{Point2f}}}[]
+    horizontal_axons=NamedTuple{(:name,:x_range, :tgts),Tuple{Symbol,IntervalSets.ClosedInterval{Float32}, Vector{Point2f}}}[]
     for (name,neuron) in pairs(neurons)
         targets = get(net.synapses, name, [])
         x_min = Inf
@@ -76,14 +76,17 @@ function Makie.plot!(netplot::NetPlot)
             x_max = max(x_max, x_tgt, x_root)
             push!(tgts, neurons[target.target[1][].name[]][:inputs_ports][][target.target[2]])
         end
-        
-        push!(horizontal_axons, (name=name, x_min=x_min, x_max = x_max, tgts=tgts))
+        sort!(tgts; by=first)
+        push!(horizontal_axons, (name=name, x_range=x_min..x_max, tgts=tgts))
     end
 
     # simple heuristic sorting
-    sort!(horizontal_axons; lt=(x1,x2)->(x2.x_min ≤ x1.x_min && x1.x_max ≤ x2.x_max)|| (x1.x_max - x1.x_min) ≤ (x2.x_max - x2.x_min))
+    sort!(horizontal_axons; 
+        lt=(x1,x2)->(x1.x_range ∈ x2.x_range) || 
+            (maximum(x1.x_range) - minimum(x1.x_range)) ≤ (maximum(x2.x_range) - minimum(x2.x_range))
+    )
 
-    left_ridge = Float32[]
+    row_blockers = Vector{IntervalSets.ClosedInterval{Float32}}[]
     
     wires = Dict{Symbol,WireNet}()
     row_y = 0
@@ -104,36 +107,56 @@ function Makie.plot!(netplot::NetPlot)
     end
     
     # collect axons between neurons
-    axon_y -= axon_margin
     for axon in horizontal_axons 
-        idx=findfirst(≤(axon.x_min), left_ridge)
+        idx=findfirst(row->all(other->isempty(axon.x_range ∩ other), row), row_blockers)
         if isnothing(idx)
-            push!(left_ridge, -Inf)
-            idx = length(left_ridge)
+            push!(row_blockers, IntervalSets.ClosedInterval{Float32}[])
+            idx = length(row_blockers)
         end
-        left_ridge[idx] = axon.x_max
+        push!(row_blockers[idx], axon.x_range)
         axon_y = row_y-(idx+1)*axon_margin
         soma::Observable{Point2f} = neurons[axon.name][:soma]
         knee::Observable{Point2f} = @lift($(soma)+Point2f(0,axon_y))
-        wrs = Vector{Q where Q}[[soma,knee],[Point2f(axon.x_min, axon_y),Point2f(axon.x_max, axon_y)]]
-        append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts])
+    
+        wrs = Vector{Q where Q}[[soma,knee]]
+        # if there is exactly one target, connect directly
+        if length(axon.tgts) == 1
+            push!(wrs[1], axon.tgts[1])
+        end
+
+        if length(axon.tgts)>1 
+            if axon.tgts[1][1] < soma[][1] < axon.tgts[end][1] 
+                # soma is in between two targets -> draw a fork
+                push!(wrs, [axon.tgts[1], knee, axon.tgts[end]])
+                append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts[2:end-1]])
+            elseif soma[][1] < axon.tgts[1][1] 
+                # soma is left of all targets -> draw a right arm
+                push!(wrs, [knee, axon.tgts[end]])
+                append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts[1:end-1]])
+            elseif soma[][1] > axon.tgts[end][1] 
+                # soma is right of all targets -> draw a left arm
+                push!(wrs, [axon.tgts[1],knee])
+                append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts[2:end]])
+            end
+        end
+
         wires[axon.name] = WireNet(wrs)
 
         if haskey(net.outputs, axon.name)
-            output_ports[axon.name] = Point2f(axon.x_min, axon_y)
+            output_ports[axon.name] = Point2f(minimum(axon.x_range), axon_y)
         end
     end
 
     
     # draw wires
     w=wireplot!(netplot, wires; bridge_radius, csegs, linewidth)
-
+    
     # set colors of all the input signal wires
     on(netplot[:input_colors]) do cols
         _to_update = Set{Symbol}()
         for key in keys(net.inputs)
             value = cols[key]
-            w[:net_color][][key] = value
+            w[:net_colors][][key] = value
             for target in net.inputs[key]
                 name = Symbol("neuron_$(target.target[1][].name[])")
                 push!(_to_update, name)
@@ -143,7 +166,7 @@ function Makie.plot!(netplot::NetPlot)
         for name in _to_update
             notify(netplot[name][][:inputs_color])
         end
-        notify(w[:net_color])
+        notify(w[:net_colors])
     end
 
     # set colors of all the axons
@@ -151,7 +174,7 @@ function Makie.plot!(netplot::NetPlot)
         _to_update = Set{Symbol}()
         for key in keys(net.synapses)
             value = cols[key]
-            w[:net_color][][key] = value
+            w[:net_colors][][key] = value
             for target in net.synapses[key]
                 name = Symbol("neuron_$(target.target[1][].name[])")
                 push!(_to_update, name)
@@ -161,7 +184,7 @@ function Makie.plot!(netplot::NetPlot)
         for name in _to_update
             notify(netplot[name][][:inputs_color])
         end
-        notify(w[:net_color])
+        notify(w[:net_colors])
     end
 
     # set colors of all the dendrites
@@ -199,18 +222,3 @@ function Makie.plot!(netplot::NetPlot)
 
     netplot
 end
-##
-neuron1 = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
-neuron2 = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
-
-net = NeuralNetwork(
-    Dict(:n1=>neuron1,:n2=>neuron2),
-    Dict(:in1=>[(:n2, :E2, :excitatory)]),
-    Dict(:n2=>:out1),
-    Dict(:n1=>[(:n2, :E1, :excitatory)],:n2=>[(:n1, :E1, :excitatory),(:n1, :H1, :excitatory)])
-)
-
-f = Figure()
-ax = Axis(f[1, 1], aspect=DataAspect())
-res=netplot!(ax, net, linewidth=2)
-display(f)

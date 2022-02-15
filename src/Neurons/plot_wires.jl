@@ -1,10 +1,3 @@
-#using GLMakie
-using CairoMakie
-using Base.Iterators, LinearAlgebra
-using ENN.Neurons, ENN.TimePetriNets
-CairoMakie.activate!()
-##
-
 struct WireNet{P}
     specified_connections::Vector{Vector{Observable{P}}}
     connections::Observable{Vector{Vector{P}}}
@@ -124,6 +117,7 @@ end
         bridge_radius=0.1,
         linewidth=3,
         csegs=20,
+        net_colors=DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black)
     )
 end
 
@@ -192,12 +186,9 @@ function Makie.plot!(wireplot::WirePlot)
     notify(first(values(nets)).connections)
 
     col = get(wireplot.attributes,:color,Observable(:black))
-    wireplot[:net_color] = Dict(name=>to_value(col) for name in keys(all_wires))
+    Dict(name=>to_value(col) for name in keys(all_wires))
 
-    merged_wires = lift(values(all_wires)...) do wires...
-        [wires...;]
-    end
-    merged_colors = lift(wireplot[:net_color], values(all_wires)...) do cols, wires...
+    merged_colors = lift(wireplot[:net_colors], values(all_wires)...) do cols, wires...
         colors = []
         for (key,wire) in zip(keys(all_wires),wires)
             append!(colors, fill(cols[key], length(wire)))
@@ -205,25 +196,10 @@ function Makie.plot!(wireplot::WirePlot)
         colors
     end
 
-    l=lines!(wireplot, merged_wires; wireplot.attributes..., color=merged_colors)
+    merged_wires = lift(values(all_wires)...) do wires...
+        [wires...;]
+    end
+    lines!(wireplot, merged_wires; linewidth=wireplot[:linewidth], color=merged_colors)
 
     wireplot
 end
-
-##
-#=
-f = Figure()
-ax = Axis(f[1, 1])
-
-A = Point2f(0,0)
-B = Point2f(1,0)
-C = Point2f(0.5,1)
-D = Point2f(0.5,-0.5)
-E = Point2f(0.75,0.75)
-net1 = WireNet([[A,B,C],[A,C]])
-net2 = WireNet([[D,E]])
-nets = [net1,net2]
-
-res=wireplot!(ax, nets)
-display(f)
-=#

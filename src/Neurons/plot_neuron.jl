@@ -1,10 +1,3 @@
-#using GLMakie
-using CairoMakie
-using Base.Iterators, LinearAlgebra
-using ENN.Neurons, ENN.TimePetriNets
-CairoMakie.activate!()
-##
-
 mutable struct TreeLayout{T,F}
     rows::Vector{Vector{Vector{NamedTuple{(:node,:position),Tuple{T,Ref{Point{2,F}}}}}}}
     x_min::Vector{F}
@@ -318,7 +311,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
             )
         end
 
-        x_extent[] .= extrema(values(input_x))
+        x_extent[] .= extrema([collect(values(input_x)); tree.x_min; tree.x_max; zero(F)])
         y_extent[] .= (zero(F), tree.y_max[end])
         notify(x_extent)
         notify(y_extent)
@@ -452,14 +445,3 @@ function Makie.plot!(neuronplot::NeuronPlot)
 
     return neuronplot
 end
-
-##
-#=
-neuron = Neuron((((((),[:E1,:E2,:E3,:E4],:E),((),[:E1,:E2],:F),((),[:G1,:G2],:G),((),[:H1,:H2],:H)),[:E1,:E2],:B),((((),Symbol[:E1],:I),),Symbol[],:C),(((((((),[:K1,:K2],:K),((),[:L1,:L2],:L),((),[:A1,:A2],:M))),Symbol[],:J),),Symbol[:H1],:D)),[:A1,:A2],:A)
-
-f = Figure()
-ax = Axis(f[1, 1], aspect=DataAspect())
-
-res= neuronplot!(ax, neuron, Point2f(0,0); portside=:both)
-display(f)
-=#
