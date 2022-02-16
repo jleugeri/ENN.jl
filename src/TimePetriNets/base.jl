@@ -159,7 +159,7 @@ end
 
 Updates the TPN after structural changes have been made (e.g. adding arcs).
 """
-function update!(pn::TPN)
+function update!(pn::TPN{M,H}) where {M,H}
     # check which transitions can disable each other
     ΔF_rows = rowvals(pn.ΔF)
     ΔF_vals = nonzeros(pn.ΔF)
@@ -387,7 +387,7 @@ function Base.:|(tpns::TPN{M,H}...) where {M,H}
         all_R[p_idx,t_idx] += R
         all_ΔF[p_idx,t_idx] += tpn.ΔF
         all_eft[t_idx] .= max(all_eft[t_idx], tpn.eft)
-        all_lft[t_idx] .= min(all_eft[t_idx], tpn.lft)
+        all_lft[t_idx] .= min(all_lft[t_idx], tpn.lft)
         all_m₀[p_idx] .+= tpn.x₀.m
     end
 

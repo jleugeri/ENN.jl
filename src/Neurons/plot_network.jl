@@ -88,12 +88,12 @@ function Makie.plot!(netplot::NetPlot)
 
     row_blockers = Vector{IntervalSets.ClosedInterval{Float32}}[]
     
-    wires = Dict{Symbol,WireNet}()
+    wires = OrderedDict{Symbol,WireNet}()
     row_y = 0
     axon_y = row_y
     
-    input_ports = Dict{Symbol,Point2f}()
-    output_ports = Dict{Symbol,Point2f}()
+    input_ports = OrderedDict{Symbol,Point2f}()
+    output_ports = OrderedDict{Symbol,Point2f}()
     
     # collect axons from input to neurons
     for (name,targets) in pairs(net.inputs)
@@ -107,6 +107,7 @@ function Makie.plot!(netplot::NetPlot)
     end
     
     # collect axons between neurons
+    row_y = axon_y
     for axon in horizontal_axons 
         idx=findfirst(row->all(other->isempty(axon.x_range ∩ other), row), row_blockers)
         if isnothing(idx)

@@ -1,6 +1,8 @@
-export SomaOrDendrite, DendriteSegment, Neuron, Synapse, NeuralNetwork
+export SomaOrDendrite, DendriteSegment, Neuron, Synapse, NeuralNetwork, SynapseType, excitatory, inhibitory
 using DataStructures
 abstract type SomaOrDendrite end
+
+@enum SynapseType excitatory inhibitory;
 
 struct DendriteSegment <: SomaOrDendrite
     children::Vector{DendriteSegment}
@@ -56,8 +58,8 @@ end
 struct Synapse
     source::Union{Ref{Neuron},Nothing}
     target::Tuple{Ref{Neuron},Symbol}
-    target_dendrites::Vector{Ref{DendriteSegment}}
-    type::Symbol
+    target_dendrites::Vector{DendriteSegment}
+    type::SynapseType
 end
 
 struct NeuralNetwork
@@ -78,7 +80,7 @@ function NeuralNetwork(neurons, inputs::OrderedDict{Symbol,Vector{X}}, outputs::
         for (target_neuron_name,target_port_name, typ, attrs...) in terminals
             tgt_n = neurons[target_neuron_name]
             idxs = findall(seg->target_port_name ∈ seg.inputs,tgt_n.all_segments)
-            syn = Synapse(nothing, (Ref(tgt_n), target_port_name), [Ref(tgt_n.all_segments[idx]) for idx in idxs], typ, attrs...)
+            syn = Synapse(nothing, (Ref(tgt_n), target_port_name), tgt_n.all_segments[idxs], typ, attrs...)
             push!(_terminals, syn)
         end
         _inputs[source_name] = _terminals
@@ -91,7 +93,7 @@ function NeuralNetwork(neurons, inputs::OrderedDict{Symbol,Vector{X}}, outputs::
         for (target_neuron_name,target_port_name, typ, attrs...) in terminals
             tgt_n = neurons[target_neuron_name]
             idxs = findall(seg->target_port_name ∈ seg.inputs,tgt_n.all_segments)
-            syn = Synapse(Ref(src), (Ref(tgt_n), target_port_name), [Ref(tgt_n.all_segments[idx]) for idx in idxs], typ, attrs...)
+            syn = Synapse(Ref(src), (Ref(tgt_n), target_port_name), tgt_n.all_segments[idxs], typ, attrs...)
             push!(_terminals, syn)
         end
         _synapses[source_name] = _terminals
