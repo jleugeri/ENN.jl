@@ -33,7 +33,7 @@ function Makie.plot!(netplot::NetPlot)
     linewidth=linewidth[]
     neuron_margin=neuron_margin[]
 
-    neurons = OrderedDict{Symbol,Combined{neuronplot, Tuple{Neuron, Point{2, Float32}}}}()
+    neurons = OrderedDict{Symbol,Combined{neuronplot, Tuple{valtype(net.neurons), Point{2, Float32}}}}()
     widths = OrderedDict{Symbol,Observable{Vector{Float32}}}()
     for (name,neuron) in pairs(net.neurons)
         n = neuronplot!(netplot, neuron, Point2f(0.0,0.0); bridge_radius,csegs,inputs_kwargs=Dict(:linewidth=>linewidth))
@@ -57,7 +57,7 @@ function Makie.plot!(netplot::NetPlot)
     # layout axons
     horizontal_axons=NamedTuple{(:name,:x_range, :tgts),Tuple{Symbol,IntervalSets.ClosedInterval{Float32}, Vector{Point2f}}}[]
     for (name,neuron) in pairs(neurons)
-        targets = get(net.synapses, name, [])
+        targets = get(net.axons, name, [])
         x_min = Inf
         x_max = -Inf
         x_root = neuron[:soma][][1]
@@ -65,7 +65,7 @@ function Makie.plot!(netplot::NetPlot)
         tgts = Point2f[]
         
         # add target output if any
-        if haskey(net.outputs, name)
+        if name in net.outputs
             x_min = 0
         end
 
@@ -96,14 +96,17 @@ function Makie.plot!(netplot::NetPlot)
     output_ports = OrderedDict{Symbol,Point2f}()
     
     # collect axons from input to neurons
-    for (name,targets) in pairs(net.inputs)
-        axon_y -= axon_margin
-        
-        start = Point2f(0,axon_y)
-        wires[name] = WireNet([
-            [start,neurons[tgt.target[1][].name[]][:inputs_ports][][tgt.target[2]]] for tgt in targets
-        ])
-        input_ports[name] = start
+    for name in net.inputs
+        if name in keys(net.axons)
+            targets = net.axons[name]
+            axon_y -= axon_margin
+            
+            start = Point2f(0,axon_y)
+            wires[name] = WireNet([
+                [start,neurons[tgt.target[1][].name[]][:inputs_ports][][tgt.target[2]]] for tgt in targets
+            ])
+            input_ports[name] = start
+        end
     end
     
     # collect axons between neurons
@@ -143,7 +146,7 @@ function Makie.plot!(netplot::NetPlot)
 
         wires[axon.name] = WireNet(wrs)
 
-        if haskey(net.outputs, axon.name)
+        if axon.name in net.outputs
             output_ports[axon.name] = Point2f(minimum(axon.x_range), axon_y)
         end
     end
@@ -155,13 +158,15 @@ function Makie.plot!(netplot::NetPlot)
     # set colors of all the input signal wires
     on(netplot[:input_colors]) do cols
         _to_update = Set{Symbol}()
-        for key in keys(net.inputs)
+        for key in net.inputs
             value = cols[key]
             w[:net_colors][][key] = value
-            for target in net.inputs[key]
-                name = Symbol("neuron_$(target.target[1][].name[])")
-                push!(_to_update, name)
-                netplot[name][][:inputs_color][][target.target[2]] = value
+            if key in keys(net.axons)
+                for target in net.axons[key]
+                    name = Symbol("neuron_$(target.target[1][].name[])")
+                    push!(_to_update, name)
+                    netplot[name][][:inputs_color][][target.target[2]] = value
+                end
             end
         end
         for name in _to_update
@@ -173,10 +178,10 @@ function Makie.plot!(netplot::NetPlot)
     # set colors of all the axons
     on(netplot[:axon_colors]) do cols
         _to_update = Set{Symbol}()
-        for key in keys(net.synapses)
+        for key in keys(net.axons)
             value = cols[key]
             w[:net_colors][][key] = value
-            for target in net.synapses[key]
+            for target in net.axons[key]
                 name = Symbol("neuron_$(target.target[1][].name[])")
                 push!(_to_update, name)
                 netplot[name][][:inputs_color][][target.target[2]] = value

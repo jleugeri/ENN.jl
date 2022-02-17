@@ -1,43 +1,79 @@
 export SomaOrDendrite, DendriteSegment, Neuron, Synapse, NeuralNetwork, SynapseType, excitatory, inhibitory
 using DataStructures
-abstract type SomaOrDendrite end
+abstract type SomaOrDendrite{T} end
 
-@enum SynapseType excitatory inhibitory;
+mutable struct DefaultParams{T}
+    children::Vector{Ref{DefaultParams{T}}}
+    epsp_duration::T
+    ipsp_duration::T
+    plateau_duration::T
+    dendritic_threshold::UInt
+    synaptic_threshold::UInt
+    axon_delay::T
+    refractory_period::T
+    p_trans::Union{Float64,Vector{Float64}}
+    _manually_set::DefaultDict{Symbol,Bool}
+    function DefaultParams{T}(; kwargs...) where T
+        obj = new{T}(Ref{DefaultParams{T}}[], T(1),T(1),T(100), 1, 1, T(0), T(1), 1.0, DefaultDict{Symbol,Bool}(false))
 
-struct DendriteSegment <: SomaOrDendrite
-    children::Vector{DendriteSegment}
-    parent::Ref{SomaOrDendrite}
-    inputs::Vector{Symbol}
-    name::Symbol
-    dendritic_threshold::Int
-    synaptic_threshold::Int
-    function DendriteSegment(children::Vector{DendriteSegment}, inputs::Vector{Symbol}, name::Symbol, dendritic_threshold::Int=isempty(children) ? 0 : 1, synaptic_threshold::Int=length(inputs))
-        if dendritic_threshold > length(children)
-            @warn "Threshold '$(dendritic_threshold)' is larger than number of children '$(length(children))'."
+        for (key,value) in kwargs
+            setproperty!(obj, key, value)
+            obj._manually_set[key] = true
         end
-        
-        this = new(children,Ref{SomaOrDendrite}(), inputs, name, dendritic_threshold, synaptic_threshold)
+        return obj
+    end
+end
+
+function inherit!(p::DefaultParams, other::DefaultParams; connect=true)
+    for (key,value) in other._manually_set
+        if !p._manually_set[key]
+            setproperty!(p, key, getproperty(other, key))
+        end
+    end
+    for child in p.children
+        inherit!(child[], p; connect=false)    
+    end
+    
+    if connect
+        push!(other.children, Ref(p))
+    end
+    nothing
+end
+
+##
+struct DendriteSegment{T} <: SomaOrDendrite{T}
+    children::Vector{DendriteSegment{T}}
+    parent::Ref{SomaOrDendrite{T}}
+    neuron::Ref{SomaOrDendrite{T}}
+    exc_inputs::Vector{Symbol}
+    name::Symbol
+    parameters::DefaultParams{T}
+    function DendriteSegment{T}(children::Vector{DendriteSegment{T}}, exc_inputs::Vector{Symbol}, name::Symbol; kwargs...) where T
+
+        this = new{T}(children, Ref{SomaOrDendrite{T}}(), Ref{SomaOrDendrite{T}}(), exc_inputs, name, DefaultParams{T}(;kwargs...))
         for child in children
             child.parent[]=this
+            inherit!(child.parameters, this.parameters)
         end
         this
     end
 end
 
-function DendriteSegment(children, inputs::Vector{Symbol}, name::Symbol, dendritic_threshold::Int=isempty(children) ? 0 : 1, synaptic_threshold::Int=length(inputs))
-    new_children = Vector{DendriteSegment}()
-    for child in children
-        push!(new_children, DendriteSegment(child...))
-    end
-    invoke(DendriteSegment, Tuple{Vector{DendriteSegment},Vector{Symbol},Symbol,Int,Int}, new_children, inputs, name, dendritic_threshold, synaptic_threshold)
+function DendriteSegment{T}(children, exc_inputs::Vector{Symbol}, name::Symbol, kwargs=Dict{Symbol,Any}()) where T
+    new_children = DendriteSegment{T}[DendriteSegment{T}(child...) for child in children]
+    invoke(DendriteSegment{T}, Tuple{Vector{DendriteSegment{T}},Vector{Symbol},Symbol}, new_children, exc_inputs, name; kwargs...)
 end
-
-struct Neuron <: SomaOrDendrite
-    all_segments::Vector{DendriteSegment}
-    dendrite::DendriteSegment
+##
+struct Neuron{T} <: SomaOrDendrite{T}
+    all_segments::Vector{DendriteSegment{T}}
+    dendrite::DendriteSegment{T}
+    ports::Dict{Symbol,Vector{DendriteSegment{T}}}
     name::Ref{Symbol}
-    function Neuron(args...; kwargs...)
-        dendrite = DendriteSegment(args...; kwargs...)
+    parameters::DefaultParams{T}
+
+    function Neuron{T}(args...; kwargs...) where T
+        dendrite = DendriteSegment{T}(args...)
+        params = DefaultParams{T}(;kwargs...)
 
         # store all segments in BFS-order
         head=0
@@ -48,55 +84,83 @@ struct Neuron <: SomaOrDendrite
             append!(all_segments, d.children)
         end
 
-        this = new(all_segments,dendrite,Ref(:neuron))
+        ports = Dict{Symbol,Vector{DendriteSegment{T}}}()
+        for segment in all_segments
+            for input in segment.exc_inputs
+                pp=get(ports, input, DendriteSegment{T}[])
+                push!(pp, segment)
+            end
+            ports[Symbol("inh_$(segment.name)")] = [segment]
+        end
+
+        this = new{T}(all_segments,dendrite,ports, Ref(:neuron), params)
+        
+        function recursively_set_neuron!(d::DendriteSegment{T}, n::Neuron{T})
+            d.neuron[] = n
+            for child in d.children
+                recursively_set_neuron!(child, n)
+            end
+        end
+
         dendrite.parent[]=this
+        recursively_set_neuron!(dendrite, this)
+        inherit!(dendrite.parameters, this.parameters)
+
         this
     end
 end
 
-
-struct Synapse
-    source::Union{Ref{Neuron},Nothing}
-    target::Tuple{Ref{Neuron},Symbol}
-    target_dendrites::Vector{DendriteSegment}
-    type::SynapseType
+##
+struct Axon{T}
+    source::Union{Ref{Neuron{T}},Symbol}
+    target::Union{Tuple{Ref{Neuron{T}},Symbol},Symbol}
+    parameters::DefaultParams{T}
+    function Axon{T}(source, target; kwargs...) where T
+        params = DefaultParams{T}(;kwargs...)
+        if isa(source, Neuron)
+            inherit!(params, source.parameters)
+        end
+        new{T}(source, target, params)
+    end
 end
 
-struct NeuralNetwork
-    neurons::OrderedDict{Symbol,Neuron}
-    inputs::OrderedDict{Symbol,Vector{Synapse}}
-    outputs::OrderedDict{Symbol,Symbol}
-    synapses::OrderedDict{Symbol,Vector{Synapse}}
+struct NeuralNetwork{T}
+    neurons::OrderedDict{Symbol,Neuron{T}}
+    inputs::Vector{Symbol}
+    outputs::Vector{Symbol}
+    axons::OrderedDict{Symbol,Vector{Axon{T}}}
+    parameters::DefaultParams{T}
+    function NeuralNetwork{T}(neurons, inputs, outputs, axons; kwargs...) where T
+        params = DefaultParams{T}(;kwargs...)
+        
+        for neuron in values(neurons)
+            inherit!(neuron.parameters,params)
+        end
+        for axon_bundle in values(axons)
+            for axon in axon_bundle
+                inherit!(axon.parameters,params)
+            end
+        end
+
+        new{T}(neurons, inputs, outputs, axons, params)
+    end
 end
 
-function NeuralNetwork(neurons, inputs::OrderedDict{Symbol,Vector{X}}, outputs::OrderedDict{Symbol,Symbol}, synapses::OrderedDict{Symbol,Vector{X}}) where X <:Union{Tuple,NTuple,NamedTuple}
+function NeuralNetwork(neurons::OrderedDict{Symbol,Neuron{T}}, inputs::Vector{Symbol}, outputs::Vector{Symbol}, axons::OrderedDict{Symbol,Vector{X}}; kwargs...) where {T,X <:Union{Tuple,NTuple,NamedTuple}}
     for (name,neuron) in pairs(neurons)
         neuron.name[] = name
     end
 
-    _inputs = OrderedDict{Symbol,Vector{Synapse}}()
-    for (source_name, terminals) in pairs(inputs)
-        _terminals = getkey(_inputs, source_name, Synapse[])
-        for (target_neuron_name,target_port_name, typ, attrs...) in terminals
-            tgt_n = neurons[target_neuron_name]
-            idxs = findall(seg->target_port_name ∈ seg.inputs,tgt_n.all_segments)
-            syn = Synapse(nothing, (Ref(tgt_n), target_port_name), tgt_n.all_segments[idxs], typ, attrs...)
+    _axons = OrderedDict{Symbol,Vector{Axon}}()
+    for (source_name, terminals) in pairs(axons)
+        _terminals = getkey(_axons, source_name, Axon[])
+        src = source_name ∈ inputs ? source_name : Ref(neurons[source_name])
+        for (target_neuron_name, target_port_name, axon_kwargs...) in terminals
+            tgt = target_neuron_name ∈ outputs ? target_neuron_name : (Ref(neurons[target_neuron_name]),target_port_name)
+            syn = Axon{T}(src, tgt; axon_kwargs...)
             push!(_terminals, syn)
         end
-        _inputs[source_name] = _terminals
+        _axons[source_name] = _terminals
     end
-
-    _synapses = OrderedDict{Symbol,Vector{Synapse}}()
-    for (source_name, terminals) in pairs(synapses)
-        _terminals = getkey(_synapses, source_name, Synapse[])
-        src = neurons[source_name]
-        for (target_neuron_name,target_port_name, typ, attrs...) in terminals
-            tgt_n = neurons[target_neuron_name]
-            idxs = findall(seg->target_port_name ∈ seg.inputs,tgt_n.all_segments)
-            syn = Synapse(Ref(src), (Ref(tgt_n), target_port_name), tgt_n.all_segments[idxs], typ, attrs...)
-            push!(_terminals, syn)
-        end
-        _synapses[source_name] = _terminals
-    end
-    NeuralNetwork(neurons, _inputs, outputs, _synapses)
+    NeuralNetwork{T}(neurons, inputs, outputs, _axons; kwargs...)
 end

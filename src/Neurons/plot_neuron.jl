@@ -198,7 +198,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
         # do initial layout to figure out horizontal placement
         tree = layout(neuron.dendrite; pos=Point{2,F}(zero(F),√(2)*dend_width/2), height=_->one(F), width=_->dend_width, x_margin=dend_margin, y_margin=row_margin)
 
-        all_inputs = unique(flatten(node.node.inputs for row in tree.rows for clique in row for node in clique))
+        all_inputs = unique(flatten(node.node.exc_inputs for row in tree.rows for clique in row for node in clique))
         all_input_ys = Dict(name=>F[] for name in all_inputs)
         merge!(inputs[], Dict(name=>Point{2,F}[] for name in all_inputs))
         
@@ -214,7 +214,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
             for row in tree.rows
                 for clique in row
                     for node in clique
-                        for inp in node.node.inputs
+                        for inp in node.node.exc_inputs
                             center_of_mass[inp] = get(center_of_mass, inp, zero(F))+node.position[][1]
                         end
                     end
@@ -244,7 +244,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
             for clique in row
                 for node in clique
                     node_x = node.position[][1]
-                    for input in node.node.inputs
+                    for input in node.node.exc_inputs
                         if isleft(input)
                             from_left[input] = max(node_x,get(from_left,input,typemin(F)))
                         else
@@ -255,7 +255,7 @@ function Makie.plot!(neuronplot::NeuronPlot)
             end
 
             # sort left and right inputs to conform with the overall order
-            row_inputs = unique(flatten(node.node.inputs for clique in row for node in clique))
+            row_inputs = unique(flatten(node.node.exc_inputs for clique in row for node in clique))
             row_inputs_left = filter(isleft, row_inputs)
             row_inputs_right = filter(!isleft, row_inputs)
             order_left = sortperm(collect(indexin(row_inputs_left, all_inputs_left)))
@@ -356,8 +356,8 @@ function Makie.plot!(neuronplot::NeuronPlot)
                     end
 
                     # sort synapses by y-position
-                    order = sortperm([input_y[inp] for inp in node.node.inputs])
-                    node_inputs = node.node.inputs[order]
+                    order = sortperm([input_y[inp] for inp in node.node.exc_inputs])
+                    node_inputs = node.node.exc_inputs[order]
                     
                     # draw synapses
                     for inp_name in node_inputs

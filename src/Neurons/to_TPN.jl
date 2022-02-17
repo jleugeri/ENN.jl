@@ -25,6 +25,14 @@ function TimePetriNets.TPN(n::Neuron, name=:neuron, τ_spike::H=1, τ_psp::H=τ_
         length(T)
     end
 
+
+
+    # TODOs: 
+    #  - add places for external input
+    #  - fix code below
+    #  - read relevant timing constraints from parameters
+
+
     # go through dendritic tree
     queue = Tuple{SomaOrDendrite,Union{Nothing,Int},Union{Nothing,Int}}[(n.dendrite,nothing,nothing)]
     while !isempty(queue)

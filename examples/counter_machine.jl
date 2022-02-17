@@ -1,20 +1,19 @@
 using ENN.Neurons, ENN.TimePetriNets, GLMakie, GraphMakie, DataStructures
 
-counter_neurons = OrderedDict((Symbol("c_$(i)")=>Neuron((((),[:input],:dendrite),),[:trigger],:soma) for i in 1:10)...)
-counter_ff_connections = OrderedDict((Symbol("c_$(i)")=>[(Symbol("c_$(i+1)"),:input, excitatory::SynapseType)] for i in 1:9)...)
-inputs = OrderedDict(
-    :init => [(:c_1, :input, excitatory::SynapseType)],
-    :trigger => [(key, :trigger, excitatory::SynapseType) for key in keys(counter_neurons)]
+counter_neurons = OrderedDict((Symbol("c_$(i)")=>Neuron{Int}((((),[:input],:dendrite),),[:trigger],:soma; axon_delay=1) for i in 1:10)...)
+counter_ff_connections = OrderedDict(
+    (Symbol("c_$(i)")=>[(Symbol("c_$(i+1)"),:input)] for i in 1:9)...,
+    :init => [(:c_1, :input)],
+    :trigger => [(key, :trigger) for key in keys(counter_neurons)]
 )
-outputs = OrderedDict{Symbol,Symbol}()
 
 net = NeuralNetwork(
     counter_neurons,    
-    inputs,
-    outputs,
+    [:init,:trigger],
+    Symbol[],
     counter_ff_connections
 )
-
+##
 f = Figure()
 ax = Axis(f[1, 1], aspect=DataAspect())
 res=netplot!(ax, net, linewidth=2)
