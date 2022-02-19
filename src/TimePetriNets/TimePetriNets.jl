@@ -3,6 +3,7 @@ module TimePetriNets
 using Requires
 
 include("base.jl")
+include("Monoflop.jl")
 
 function __init__()
     # Optional dependency for makie-based plotting

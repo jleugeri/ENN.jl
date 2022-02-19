@@ -89,6 +89,7 @@ struct Neuron{T} <: SomaOrDendrite{T}
             for input in segment.exc_inputs
                 pp=get(ports, input, DendriteSegment{T}[])
                 push!(pp, segment)
+                ports[input]=pp
             end
             ports[Symbol("inh_$(segment.name)")] = [segment]
         end

@@ -41,10 +41,13 @@ struct TPN{M,H}
     ΔF::SparseMatrixCSC{M}      # token-changes caused by the transitions (one column per transition)
     eft::Vector{H}              # earliest firing time of transition
     lft::Vector{H}              # last firing time of transition
+    trans_probs::Vector{Float64}# probability to fire (if multiple options are available simultaneously)
     x₀::TPNState{M,H}           # initial state vector
     # internal helper variables
     may_disable::SparseMatrixCSC{Bool}
     may_enable::SparseMatrixCSC{Bool}
+    P_index::Dict{Symbol,Int}
+    T_index::Dict{Symbol,Int}
 
     """
         TPN(P,T,C,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
@@ -60,7 +63,7 @@ struct TPN{M,H}
     - `lft`: last firing time of transition
     - `m₀::Union{TPNState,Vector{<:Integer}}`: initial state vector (if type `TPNState`) or initial marking
     """
-    function TPN(P,T,R,ΔF,eft,lft,m₀::Union{TPNState,Vector{<:Integer}})
+    function TPN(P,T,R,ΔF,eft,lft,trans_probs,m₀::Union{TPNState,Vector{<:Integer}})
         M = eltype(ΔF)
         H = eltype(eft)
 
@@ -72,7 +75,10 @@ struct TPN{M,H}
         may_disable = spzeros(Bool, nT, nT)
         may_enable = spzeros(Bool, nT, nT)
         
-        pn = new{M,H}(P,T,C,ΔF,eft,lft,x₀, may_disable, may_enable)
+        P_index = Dict(value=>key for (key,value) in enumerate(P))
+        T_index = Dict(value=>key for (key,value) in enumerate(T))
+
+        pn = new{M,H}(P,T,C,ΔF,eft,lft,trans_probs,x₀, may_disable, may_enable, P_index, T_index)
         
         update!(pn)
         pn
@@ -374,6 +380,7 @@ function Base.:|(tpns::TPN{M,H}...) where {M,H}
     all_ΔF = spzeros(M, length(all_places), length(all_transitions))
     all_eft = zeros(H, length(all_transitions))
     all_lft = fill(typemax(H), length(all_transitions))
+    all_p_trans = ones(Float64, length(all_transitions))
     all_m₀ = zeros(M, length(all_places))
     
     # merge transitions by adding arcs, 
@@ -388,8 +395,9 @@ function Base.:|(tpns::TPN{M,H}...) where {M,H}
         all_ΔF[p_idx,t_idx] += tpn.ΔF
         all_eft[t_idx] .= max(all_eft[t_idx], tpn.eft)
         all_lft[t_idx] .= min(all_lft[t_idx], tpn.lft)
+        all_p_trans[t_idx] .= min(all_p_trans[t_idx], tpn.trans_probs)
         all_m₀[p_idx] .+= tpn.x₀.m
     end
 
-    TPN(all_places, all_transitions, all_R, all_ΔF, all_eft, all_lft, all_m₀)
+    TPN(all_places, all_transitions, all_R, all_ΔF, all_eft, all_lft, all_p_trans, all_m₀)
 end

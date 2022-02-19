@@ -2,6 +2,8 @@ using Base.Iterators, LinearAlgebra
 using DataStructures, IntervalSets
 using ENN.Neurons, ENN.TimePetriNets
 
+export set_colors_to_state!
+
 # Optional dependencies from Requires.jl:
 using .GLMakie
 
@@ -16,6 +18,10 @@ include("plot_wires.jl")
         axon_margin = 0.05,
         bridge_radius = 0.025,
         neuron_margin = 0.1,
+        default_axon_color=(active=:red,passive=:black),
+        default_input_color=(active=:red,passive=:black),
+        default_dendrite_color=(active=:red,passive=:silver),
+        default_spine_color=(active=:red,passive=:silver),
         input_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
         axon_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
         dendrite_colors = DefaultDict{Tuple{Symbol,Symbol},Union{Symbol,RGBf,RGBAf}}(:silver),
@@ -25,6 +31,9 @@ end
 
 function Makie.plot!(netplot::NetPlot)
     net = netplot[1][]
+    
+    tpn = TPN(net)
+    state = Observable(deepcopy(tpn.x₀))
 
     (; axon_margin, bridge_radius,csegs,linewidth,neuron_margin) = netplot.attributes
     bridge_radius = bridge_radius[]
@@ -39,7 +48,7 @@ function Makie.plot!(netplot::NetPlot)
         n = neuronplot!(netplot, neuron, Point2f(0.0,0.0); bridge_radius,csegs,inputs_kwargs=Dict(:linewidth=>linewidth))
         neurons[name]=n
         widths[name]=n[:x_extent]
-        netplot[Symbol("neuron_$(name)")] = n
+        netplot[Symbol(name)] = n
     end
 
     onany(values(widths)...) do _widths...
@@ -155,34 +164,14 @@ function Makie.plot!(netplot::NetPlot)
     # draw wires
     w=wireplot!(netplot, wires; bridge_radius, csegs, linewidth)
     
-    # set colors of all the input signal wires
-    on(netplot[:input_colors]) do cols
-        _to_update = Set{Symbol}()
-        for key in net.inputs
-            value = cols[key]
-            w[:net_colors][][key] = value
-            if key in keys(net.axons)
-                for target in net.axons[key]
-                    name = Symbol("neuron_$(target.target[1][].name[])")
-                    push!(_to_update, name)
-                    netplot[name][][:inputs_color][][target.target[2]] = value
-                end
-            end
-        end
-        for name in _to_update
-            notify(netplot[name][][:inputs_color])
-        end
-        notify(w[:net_colors])
-    end
-
-    # set colors of all the axons
-    on(netplot[:axon_colors]) do cols
+    # set colors of all the inputs
+    onany(netplot[:axon_colors]) do cols
         _to_update = Set{Symbol}()
         for key in keys(net.axons)
             value = cols[key]
             w[:net_colors][][key] = value
             for target in net.axons[key]
-                name = Symbol("neuron_$(target.target[1][].name[])")
+                name = Symbol("$(target.target[1][].name[])")
                 push!(_to_update, name)
                 netplot[name][][:inputs_color][][target.target[2]] = value
             end
@@ -196,7 +185,7 @@ function Makie.plot!(netplot::NetPlot)
     # set colors of all the dendrites
     on(netplot[:dendrite_colors]) do cols
         for n_key in keys(net.neurons)
-            tmp = netplot[Symbol("neuron_$(n_key)")][][:dendrites_color]
+            tmp = netplot[Symbol("$(n_key)")][][:dendrites_color]
             for d_key in keys(tmp[])
                 value = cols[(n_key,d_key)]
                 tmp[][d_key] = value
@@ -208,7 +197,7 @@ function Makie.plot!(netplot::NetPlot)
     # set colors of all the spines
     on(netplot[:spine_colors]) do cols
         for n_key in keys(net.neurons)
-            tmp = netplot[Symbol("neuron_$(n_key)")][][:spines_color]
+            tmp = netplot[Symbol("$(n_key)")][][:spines_color]
             for (d_key,s_key) in keys(tmp[])
                 value = cols[(n_key,d_key,s_key)]
                 tmp[][(d_key,s_key)] = value
@@ -219,12 +208,55 @@ function Makie.plot!(netplot::NetPlot)
 
     notify(netplot[:spine_colors])
     notify(netplot[:axon_colors])
-    notify(netplot[:input_colors])
     notify(netplot[:dendrite_colors])
 
     netplot[:wires] = w
     netplot[:input_ports] = input_ports
     netplot[:output_ports] = output_ports
+    netplot[:tpn] = tpn
+    netplot[:state] = state
+
+    set_colors_to_state!(netplot)
 
     netplot
+end
+
+
+function set_colors_to_state!(netplot)
+    state = netplot[:state]
+
+    (;default_axon_color,default_dendrite_color,default_spine_color) = netplot.attributes
+    
+    on(state) do state
+        net = netplot[:net][]
+        net_tpn =  netplot[:tpn][]
+        
+        # Process axons
+        for name in keys(netplot[:axon_colors][])
+            tgt_name = name in net.inputs ? "input_$(name)_on" : "$(name)_$(net.neurons[name].dendrite.name)_on"
+            tgt_idx = net_tpn.P_index[Symbol(tgt_name)]
+            netplot[:axon_colors][][name] = 
+                state.m[tgt_idx] > 0 ? default_axon_color.active[] : default_axon_color.passive[]
+        end
+
+        # Process spines
+        for (neuron_name, dendrite_name, input_name) in keys(netplot[:spine_colors][])
+            tgt_idx = net_tpn.P_index[Symbol("$(neuron_name)_$(dendrite_name)_$(input_name)_on")]
+            netplot[:spine_colors][][(neuron_name, dendrite_name, input_name)] = 
+                state.m[tgt_idx] > 0 ? default_spine_color.active[] : default_spine_color.passive[]
+        end
+
+        # Process dendrites
+        for (neuron_name, dendrite_name) in keys(netplot[:dendrite_colors][])
+            tgt_idx = net_tpn.P_index[Symbol("$(neuron_name)_$(dendrite_name)_on")]
+            netplot[:dendrite_colors][][(neuron_name, dendrite_name)] = 
+                state.m[tgt_idx] > 0 ? default_dendrite_color.active[] : default_dendrite_color.passive[]
+        end
+
+        notify(netplot[:spine_colors])
+        notify(netplot[:axon_colors])
+        notify(netplot[:dendrite_colors])
+    end
+
+    notify(state)
 end
