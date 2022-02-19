@@ -134,8 +134,11 @@ struct NeuralNetwork{T}
     function NeuralNetwork{T}(neurons, inputs, outputs, axons; kwargs...) where T
         params = DefaultParams{T}(;kwargs...)
         
-        for neuron in values(neurons)
+        for (name,neuron) in pairs(neurons)
             inherit!(neuron.parameters,params)
+            for axon in get(axons, name, [])
+                inherit!(axon.parameters,neuron.parameters)
+            end
         end
         for axon_bundle in values(axons)
             for axon in axon_bundle

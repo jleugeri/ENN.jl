@@ -166,6 +166,15 @@ function TimePetriNets.TPN(net::NeuralNetwork, args...;kwargs...)
                 tgt_idx = net_tpn.P_index[Symbol("$(neuron_name)_$(dendrite.name)_$(input)_trigger")]
                 # add arc from transition to trigger place
                 net_tpn.ΔF[tgt_idx, src_idx] += 1
+                
+                t_idx = net_tpn.T_index[Symbol("$(neuron_name)_$(dendrite.name)_$(input)_start")]
+                net_tpn.eft[t_idx] = axon.parameters.axon_delay
+                net_tpn.lft[t_idx] = axon.parameters.axon_delay
+                t_idx = get(net_tpn.T_index,  Symbol("$(neuron_name)_$(dendrite.name)_$(input)_fail"), nothing)
+                if !isnothing(t_idx)
+                    net_tpn.eft[t_idx] = axon.parameters.axon_delay
+                    net_tpn.lft[t_idx] = axon.parameters.axon_delay    
+                end
             end
         end
         nothing
