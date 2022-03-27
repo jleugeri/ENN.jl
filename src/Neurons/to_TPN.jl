@@ -1,25 +1,25 @@
 import ..TimePetriNets
 using SparseArrays
 
-function TimePetriNets.TPN(n::Neuron{H}, name=:neuron; M=Int) where H
+function TimePetriNets.TPN(n::Neuron{H}, name=:neuron; M=Int) where {H}
     # collect all places and transitions to glue dendrite segments + synapses together
     P = Symbol[]
     T = Symbol[]
-    m₀= M[]
-    eft=H[]
-    lft=H[]
-    trans_probs=Float64[]
+    m₀ = M[]
+    eft = H[]
+    lft = H[]
+    trans_probs = Float64[]
 
-    R =  Tuple{Int,Int,M}[]
+    R = Tuple{Int,Int,M}[]
     ΔF = Tuple{Int,Int,M}[]
 
-    function add_place!(name,initial)
+    function add_place!(name, initial)
         push!(P, Symbol(name))
         push!(m₀, M(initial))
         length(P)
     end
 
-    function add_transition!(name,e,l=e,p=1.0)
+    function add_transition!(name, e, l=e, p=1.0)
         push!(T, Symbol(name))
         push!(eft, H(e))
         push!(lft, H(l))
@@ -48,79 +48,102 @@ function TimePetriNets.TPN(n::Neuron{H}, name=:neuron; M=Int) where H
     sub_tpns = TPN{M,H}[]
 
     # go through dendritic tree
-    queue = Tuple{SomaOrDendrite,Union{Nothing,Int},Union{Nothing,Int}}[(n.dendrite,nothing,nothing)]
+    queue = Tuple{SomaOrDendrite,Union{Nothing,Int},Union{Nothing,Int}}[(n.dendrite, nothing, nothing)]
     while !isempty(queue)
-        (seg,parent_counter,parent_trans) = pop!(queue)
-        
+        (seg, parent_counter, parent_trans) = pop!(queue)
+
         # the dendrite is mainly a monoflop
         dendrite_tpn = TimePetriNets.Monoflop(Symbol("$(name)_$(seg.name)"), seg.parameters.plateau_duration; add_reset=true)
         push!(sub_tpns, dendrite_tpn)
-        
+
         # need to access start, stop, reset_start and reset_reset transition as well as the on place --> copy them
-        t_names = ("$(name)_$(seg.name)_start","$(name)_$(seg.name)_stop","$(name)_$(seg.name)_reset_start","$(name)_$(seg.name)_reset_reset")
-        seg_start,seg_stop,seg_reset_start,seg_reset = copy_transitions!(dendrite_tpn, t_names...)
+        t_names = ("$(name)_$(seg.name)_start", "$(name)_$(seg.name)_stop", "$(name)_$(seg.name)_reset_start", "$(name)_$(seg.name)_reset_reset")
+        seg_start, seg_stop, seg_reset_start, seg_reset = copy_transitions!(dendrite_tpn, t_names...)
         (seg_on,) = copy_places!(dendrite_tpn, "$(name)_$(seg.name)_on")
-        
-        # depending on #inputs, add synaptic counter
-        syn_counter = length(seg.exc_inputs) <= 1 ? nothing : 
-            add_place!("$(name)_$(seg.name)_syn_counter", 0)
+
+        # depending on excitatory #inputs, add synaptic counter
+        syn_counter_exc = length(seg.exc_inputs) <= 1 ? nothing :
+                          add_place!("$(name)_$(seg.name)_syn_counter_exc", 0)
+
+        # depending on inhibitory #inputs, add synaptic counter
+        syn_counter_inh = length(seg.inh_inputs) <= 1 ? nothing :
+                          add_place!("$(name)_$(seg.name)_syn_counter_inh", 0)
 
         # depending on #children, add dendritic counter
-        den_counter = length(seg.children) <= 1 ? nothing : 
-            add_place!("$(name)_$(seg.name)_den_counter", 0)
+        den_counter = length(seg.children) <= 1 ? nothing :
+                      add_place!("$(name)_$(seg.name)_den_counter", 0)
 
         # if there is a parent counter, update it, too
         if !isnothing(parent_counter)
-            push!(ΔF,(parent_counter, seg_start, 1),(parent_counter, seg_stop, -1),(parent_counter, seg_reset, -1))
+            push!(ΔF, (parent_counter, seg_start, 1), (parent_counter, seg_stop, -1), (parent_counter, seg_reset, -1))
         end
 
         # if there is a parent transaction, make it sensitive to this plateau
         if !isnothing(parent_trans)
-            push!(R,(seg_on, parent_trans, 1))
+            push!(R, (seg_on, parent_trans, 1))
         end
 
-        ## Add inhibitory synapse
-        inh_trigger = add_place!("$(name)_$(seg.name)_inh_trigger", 0)
-        push!(ΔF,(inh_trigger, seg_reset_start, -1))
+        ## Add all inhibitory synapses
+        for inp in seg.inh_inputs
+            # the inhibitory synapse is mainly a monoflop
+            synapse_tpn = TimePetriNets.Monoflop(Symbol("$(name)_$(seg.name)_$(inp)"), seg.parameters.ipsp_duration; add_reset=false)
+            push!(sub_tpns, synapse_tpn)
+            # we need to access the start and stop transition and on place --> copy them 
+            (t_start, t_stop) = copy_transitions!(synapse_tpn, "$(name)_$(seg.name)_$(inp)_start", "$(name)_$(seg.name)_$(inp)_stop")
+            (p_on,) = copy_places!(synapse_tpn, "$(name)_$(seg.name)_$(inp)_on")
         
+            # Add trigger place
+            t_trigger = add_place!("$(name)_$(seg.name)_$(inp)_trigger", 0)
+            push!(ΔF, (t_trigger, t_start, -1))
         
+            # if there is a synapse counter, update it, too
+            if !isnothing(syn_counter_inh)
+                push!(ΔF, (syn_counter_inh, t_start, 1), (syn_counter_inh, t_stop, -1))
+            else
+                syn_counter_inh = p_on
+            end
+        
+            # enable reset
+            push!(R, (syn_counter_inh, seg_reset_start, 1))
+        end
+
         ## Add all excitatory synapses
         for inp in seg.exc_inputs
             # the excitatory synapse is mainly a monoflop
             synapse_tpn = TimePetriNets.Monoflop(Symbol("$(name)_$(seg.name)_$(inp)"), seg.parameters.epsp_duration; add_reset=false)
             push!(sub_tpns, synapse_tpn)
             # we need to access the start and stop transition and on place --> copy them 
-            (t_start,t_stop) = copy_transitions!(synapse_tpn, "$(name)_$(seg.name)_$(inp)_start","$(name)_$(seg.name)_$(inp)_stop")
+            (t_start, t_stop) = copy_transitions!(synapse_tpn, "$(name)_$(seg.name)_$(inp)_start", "$(name)_$(seg.name)_$(inp)_stop")
             (p_on,) = copy_places!(synapse_tpn, "$(name)_$(seg.name)_$(inp)_on")
-            
+
             # Add trigger place
             t_trigger = add_place!("$(name)_$(seg.name)_$(inp)_trigger", 0)
-            push!(ΔF,(t_trigger,  t_start,  -1))
-            
+            push!(ΔF, (t_trigger, t_start, -1))
+
             # if there is a synapse counter, update it, too
-            if !isnothing(syn_counter)
-                push!(ΔF,(syn_counter, t_start, 1), (syn_counter, t_stop, -1))
+            if !isnothing(syn_counter_exc)
+                push!(ΔF, (syn_counter_exc, t_start, 1), (syn_counter_exc, t_stop, -1))
             else
-                syn_counter=p_on
+                syn_counter_exc = p_on
             end
         end
 
         # Make start transition sensitive to excitatory synaptic input
-        if !isnothing(syn_counter)
-            push!(R,(syn_counter,seg_start,seg.parameters.synaptic_threshold))
+        if !isnothing(syn_counter_exc)
+            push!(R, (syn_counter_exc, seg_start, seg.parameters.synaptic_threshold))
         end
 
         if !isnothing(den_counter)
             # Make start transition sensitive to dendritic input
-            push!(R,(den_counter,seg_start,seg.parameters.dendritic_threshold))
-            
+            push!(R, (den_counter, seg_start, seg.parameters.dendritic_threshold))
+
             # Go through child branches with shared dendrite counter
             for child in seg.children
                 push!(queue, (child, den_counter, nothing))
             end
-        elseif length(seg.children)==1
+        elseif length(seg.children) == 1
             # Add single child branch without extra counter -> directly connect to seg_start
-            push!(queue,(seg.children[1],nothing,seg_start))
+            push!(queue, (seg.children[1], nothing, seg_start))
         end
     end
 
@@ -129,8 +152,8 @@ function TimePetriNets.TPN(n::Neuron{H}, name=:neuron; M=Int) where H
 
     R = sparse(collect.(zip(R...))..., M, N)
     ΔF = sparse(collect.(zip(ΔF...))..., M, N)
-    
-    glue = TimePetriNets.TPN(P,T,R,ΔF,eft,lft,trans_probs,m₀)
+
+    glue = TimePetriNets.TPN(P, T, R, ΔF, eft, lft, trans_probs, m₀)
     |(glue, sub_tpns...)
 end
 
@@ -167,13 +190,15 @@ function TimePetriNets.TPN(net::NeuralNetwork, args...;kwargs...)
                 # add arc from transition to trigger place
                 net_tpn.ΔF[tgt_idx, src_idx] += 1
                 
-                t_idx = net_tpn.T_index[Symbol("$(neuron_name)_$(dendrite.name)_$(input)_start")]
-                net_tpn.eft[t_idx] = axon.parameters.axon_delay
-                net_tpn.lft[t_idx] = axon.parameters.axon_delay
-                t_idx = get(net_tpn.T_index,  Symbol("$(neuron_name)_$(dendrite.name)_$(input)_fail"), nothing)
+                t_idx = get(net_tpn.T_index, Symbol("$(neuron_name)_$(dendrite.name)_$(input)_start"), nothing)
                 if !isnothing(t_idx)
                     net_tpn.eft[t_idx] = axon.parameters.axon_delay
-                    net_tpn.lft[t_idx] = axon.parameters.axon_delay    
+                    net_tpn.lft[t_idx] = axon.parameters.axon_delay
+                end
+                t_idx = get(net_tpn.T_index, Symbol("$(neuron_name)_$(dendrite.name)_$(input)_fail"), nothing)
+                if !isnothing(t_idx)
+                    net_tpn.eft[t_idx] = axon.parameters.axon_delay
+                    net_tpn.lft[t_idx] = axon.parameters.axon_delay
                 end
             end
         end

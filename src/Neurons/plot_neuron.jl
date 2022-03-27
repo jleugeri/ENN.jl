@@ -198,7 +198,10 @@ function Makie.plot!(neuronplot::NeuronPlot)
         # do initial layout to figure out horizontal placement
         tree = layout(neuron.dendrite; pos=Point{2,F}(zero(F),√(2)*dend_width/2), height=_->one(F), width=_->dend_width, x_margin=dend_margin, y_margin=row_margin)
 
-        all_inputs = unique(flatten(node.node.exc_inputs for row in tree.rows for clique in row for node in clique))
+        all_inputs = unique([
+            flatten(node.node.exc_inputs for row in tree.rows for clique in row for node in clique)...,
+            flatten(node.node.inh_inputs for row in tree.rows for clique in row for node in clique)...
+        ])
         all_input_ys = Dict(name=>F[] for name in all_inputs)
         merge!(inputs[], Dict(name=>Point{2,F}[] for name in all_inputs))
         
@@ -215,7 +218,10 @@ function Makie.plot!(neuronplot::NeuronPlot)
                 for clique in row
                     for node in clique
                         for inp in node.node.exc_inputs
-                            center_of_mass[inp] = get(center_of_mass, inp, zero(F))+node.position[][1]
+                            center_of_mass[inp] = get(center_of_mass, inp, zero(F)) + node.position[][1]
+                        end
+                        for inp in node.node.inh_inputs
+                            center_of_mass[inp] = get(center_of_mass, inp, zero(F)) + node.position[][1]
                         end
                     end
                 end
@@ -246,6 +252,13 @@ function Makie.plot!(neuronplot::NeuronPlot)
                     node_x = node.position[][1]
                     for input in node.node.exc_inputs
                         if isleft(input)
+                            from_left[input] = max(node_x, get(from_left, input, typemin(F)))
+                        else
+                            from_right[input] = min(node_x, get(from_right, input, typemax(F)))
+                        end
+                    end
+                    for input in node.node.inh_inputs
+                        if isleft(input)
                             from_left[input] = max(node_x,get(from_left,input,typemin(F)))
                         else
                             from_right[input] = min(node_x,get(from_right,input,typemax(F)))
@@ -255,7 +268,10 @@ function Makie.plot!(neuronplot::NeuronPlot)
             end
 
             # sort left and right inputs to conform with the overall order
-            row_inputs = unique(flatten(node.node.exc_inputs for clique in row for node in clique))
+            row_inputs = unique([
+                flatten(node.node.exc_inputs for clique in row for node in clique)...,
+                flatten(node.node.inh_inputs for clique in row for node in clique)...
+            ])
             row_inputs_left = filter(isleft, row_inputs)
             row_inputs_right = filter(!isleft, row_inputs)
             order_left = sortperm(collect(indexin(row_inputs_left, all_inputs_left)))
@@ -340,41 +356,41 @@ function Makie.plot!(neuronplot::NeuronPlot)
                 pt4 = pt5 + Point{2,F}(zero(F),tree.y_margin[]/3)
                 
                 # iterate all nodes in the clique
-                for (j,node) in enumerate(clique)
+                for (j, node) in enumerate(clique)
                     # start points
                     pt1 = node.position[]
                     node_x = pt1[1]
-
+                
                     # knee points
-                    pt2 = pt1 - Point{2,F}(zero(F),tree.y_margin[]/3)
+                    pt2 = pt1 - Point{2,F}(zero(F), tree.y_margin[] / 3)
                     # foot points
-                    pt3 = (pt2 + pt5)/2
-
+                    pt3 = (pt2 + pt5) / 2
+                
                     # add leg (if not root of the tree)
-                    if i>1
-                        push!(connector_lines[], pt1, pt2, pt3, pt4, Point{2,F}(NaN,NaN))
+                    if i > 1
+                        push!(connector_lines[], pt1, pt2, pt3, pt4, Point{2,F}(NaN, NaN))
                     end
-
+                
                     # sort synapses by y-position
-                    order = sortperm([input_y[inp] for inp in node.node.exc_inputs])
-                    node_inputs = node.node.exc_inputs[order]
-                    
+                    order = sortperm([input_y[inp] for inp in [node.node.exc_inputs; node.node.inh_inputs]])
+                    node_inputs = [node.node.exc_inputs; node.node.inh_inputs][order]
+                
                     # draw synapses
                     for inp_name in node_inputs
-                        foot = Point{2,F}(node_x + (isleft(inp_name) ? -dend_width/2 : dend_width/2), input_y[inp_name]- syn_margin/2)
-                        
+                        foot = Point{2,F}(node_x + (isleft(inp_name) ? -dend_width / 2 : dend_width / 2), input_y[inp_name] - syn_margin / 2)
+                
                         # add the horizontal connector
-                        pushfirst!(inputs[][inp_name], 
-                            Point{2,F}(input_x[inp_name],input_y[inp_name]), 
-                            foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_margin/2), syn_margin/2), 
-                            foot+Point{2,F}((isleft(inp_name) ? -1 : 1)*(syn_stem+syn_radius*sqrt(2)/2), syn_radius*sqrt(2)/2), 
-                            Point{2,F}(NaN,NaN)
+                        pushfirst!(inputs[][inp_name],
+                            Point{2,F}(input_x[inp_name], input_y[inp_name]),
+                            foot + Point{2,F}((isleft(inp_name) ? -1 : 1) * (syn_stem + syn_margin / 2), syn_margin / 2),
+                            foot + Point{2,F}((isleft(inp_name) ? -1 : 1) * (syn_stem + syn_radius * sqrt(2) / 2), syn_radius * sqrt(2) / 2),
+                            Point{2,F}(NaN, NaN)
                         )
-                        
-                        spines[][(node.node.name,inp_name)] = excSynapse(foot, syn_stem, syn_radius; csegs, dir=input_side[inp_name])
+                
+                        spines[][(node.node.name, inp_name)] = excSynapse(foot, syn_stem, syn_radius; csegs, dir=input_side[inp_name])
                     end
-
-                    dendrites[][node.node.name] = drawDendrite(pt1, dend_width, tree.y_max[i]-tree.y_min[i], F(Inf); csegs, soma=i==1)
+                
+                    dendrites[][node.node.name] = drawDendrite(pt1, dend_width, tree.y_max[i] - tree.y_min[i], F(Inf); csegs, soma=i == 1)
                 end
 
                 if i>1

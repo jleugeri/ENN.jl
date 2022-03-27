@@ -46,11 +46,12 @@ struct DendriteSegment{T} <: SomaOrDendrite{T}
     parent::Ref{SomaOrDendrite{T}}
     neuron::Ref{SomaOrDendrite{T}}
     exc_inputs::Vector{Symbol}
+    inh_inputs::Vector{Symbol}
     name::Symbol
     parameters::DefaultParams{T}
-    function DendriteSegment{T}(children::Vector{DendriteSegment{T}}, exc_inputs::Vector{Symbol}, name::Symbol; kwargs...) where T
+    function DendriteSegment{T}(children::Vector{DendriteSegment{T}}, exc_inputs, inh_inputs, name; kwargs...) where T
 
-        this = new{T}(children, Ref{SomaOrDendrite{T}}(), Ref{SomaOrDendrite{T}}(), exc_inputs, name, DefaultParams{T}(;kwargs...))
+        this = new{T}(children, Ref{SomaOrDendrite{T}}(), Ref{SomaOrDendrite{T}}(), exc_inputs, inh_inputs, name, DefaultParams{T}(;kwargs...))
         for child in children
             child.parent[]=this
             inherit!(child.parameters, this.parameters)
@@ -59,9 +60,9 @@ struct DendriteSegment{T} <: SomaOrDendrite{T}
     end
 end
 
-function DendriteSegment{T}(children, exc_inputs::Vector{Symbol}, name::Symbol, kwargs=Dict{Symbol,Any}()) where T
+function DendriteSegment{T}(children, exc_inputs, inh_inputs, name, kwargs=Dict{Symbol,Any}()) where T
     new_children = DendriteSegment{T}[DendriteSegment{T}(child...) for child in children]
-    invoke(DendriteSegment{T}, Tuple{Vector{DendriteSegment{T}},Vector{Symbol},Symbol}, new_children, exc_inputs, name; kwargs...)
+    invoke(DendriteSegment{T}, Tuple{Vector{DendriteSegment{T}},Vector{Symbol},Vector{Symbol},Symbol}, new_children, Vector{Symbol}(exc_inputs), Vector{Symbol}(inh_inputs), Symbol(name); kwargs...)
 end
 ##
 struct Neuron{T} <: SomaOrDendrite{T}
@@ -87,6 +88,11 @@ struct Neuron{T} <: SomaOrDendrite{T}
         ports = Dict{Symbol,Vector{DendriteSegment{T}}}()
         for segment in all_segments
             for input in segment.exc_inputs
+                pp=get(ports, input, DendriteSegment{T}[])
+                push!(pp, segment)
+                ports[input]=pp
+            end
+            for input in segment.inh_inputs
                 pp=get(ports, input, DendriteSegment{T}[])
                 push!(pp, segment)
                 ports[input]=pp
