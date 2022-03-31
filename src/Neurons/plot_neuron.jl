@@ -436,11 +436,17 @@ function Makie.plot!(neuronplot::NeuronPlot)
     lines!(neuronplot, @lift($(connector_lines).+Ref($(offset))); connector_kwargs[]...)
 
     # draw spines
-    col = pop!(spine_kwargs[], :color, :gray)
-    neuronplot[:spines_color] = @lift(Dict(name=>col for name in keys($(spines))))
-    neuronplot[:spines]=poly!(neuronplot, @lift([val.+ Ref($(offset)) for val in values($(spines))]); spine_kwargs[]...,
-        color=@lift([$(neuronplot[:spines_color])[key] for key in keys($(spines))]), spine_kwargs[]...)
-    neuronplot[:spine_ids]=@lift(keys($(spines)))
+    if !isempty(spines[])
+        col = pop!(spine_kwargs[], :color, :gray)
+        neuronplot[:spines_color] = @lift(Dict(name=>col for name in keys($(spines))))
+        neuronplot[:spines]=poly!(neuronplot, @lift(Vector{Point{2,F}}[val.+ Ref($(offset)) for val in values($(spines))]); spine_kwargs[]...,
+            color=@lift([$(neuronplot[:spines_color])[key] for key in keys($(spines))]), spine_kwargs[]...)
+        neuronplot[:spine_ids]=@lift(keys($(spines)))
+    else
+        neuronplot[:spines_color]   = Nothing[]
+        neuronplot[:spines]         = Nothing[]
+        neuronplot[:spine_ids]      = Nothing[]
+    end
 
     # draw branches
     col = pop!(dendrite_kwargs[], :color, :gray)
@@ -450,12 +456,19 @@ function Makie.plot!(neuronplot::NeuronPlot)
     neuronplot[:dendrite_ids]=@lift(keys($(dendrites)))
     
     #draw incoming axons
-    col = pop!(inputs_kwargs[], :color, :gray)
-    neuronplot[:inputs_color] = @lift(Dict(name=>col for name in keys($(inputs))))
-    neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(inputs)))...;]); 
-        color=@lift([(fill($(neuronplot[:inputs_color])[key], length(val)+1) for (key,val) in pairs($(inputs)))...;]), inputs_kwargs[]...)
-    neuronplot[:inputs_ids]=@lift(collect(zip(keys($(inputs)),length.(values($(inputs))))))
-    neuronplot[:inputs_ports] = @lift(Dict(key=>first(value)+$(offset) for (key, value) in pairs($(inputs))))
+    if !isempty(inputs[])
+        col = pop!(inputs_kwargs[], :color, :gray)
+        neuronplot[:inputs_color] = @lift(Dict(name=>col for name in keys($(inputs))))
+        neuronplot[:axons]=lines!(neuronplot, @lift(Point{2,F}[([val.+ Ref($(offset)); [Point{2,F}(NaN,NaN)]] for val in values($(inputs)))...;]); 
+            color=@lift([(fill($(neuronplot[:inputs_color])[key], length(val)+1) for (key,val) in pairs($(inputs)))...;]), inputs_kwargs[]...)
+        neuronplot[:inputs_ids]=@lift(collect(zip(keys($(inputs)),length.(values($(inputs))))))
+        neuronplot[:inputs_ports] = @lift(Dict(key=>first(value)+$(offset) for (key, value) in pairs($(inputs))))
+    else
+        neuronplot[:inputs_color]   = Nothing[]
+        neuronplot[:axons]          = Nothing[]
+        neuronplot[:inputs_ids]     = Nothing[]
+        neuronplot[:inputs_ports]   = Nothing[]
+    end
 
     neuronplot[:soma] = offset
 

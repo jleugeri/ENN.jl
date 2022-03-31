@@ -1,6 +1,6 @@
 export Monoflop
 
-function Monoflop(name::Symbol, duration::H; start_delay=zero(H), reset_delay=zero(H), reset_duration=zero(H), M=Int, add_reset=false, reset_name=:reset) where H
+function Monoflop(name::Symbol, duration::H; start_delay=zero(H), M=Int, add_reset=false) where H
     P = Symbol[]
     T = Symbol[]
     m₀= M[]
@@ -27,10 +27,6 @@ function Monoflop(name::Symbol, duration::H; start_delay=zero(H), reset_delay=ze
 
     # add places
     p_on,p_off = add_place!.((("$(name)_$(state)") for state in (on,:off)),(0,1))
-    if add_reset
-        p_reset_on,p_reset_off = 
-            add_place!.((("$(name)_$(reset_name)_$(state)") for state in (:on,:off)),(0,1))
-    end
 
     # add transitions and arcs
     t_start,t_stop = add_transition!.((("$(name)_$(trans)") for trans in (:start,:stop)),(start_delay,duration))
@@ -42,21 +38,13 @@ function Monoflop(name::Symbol, duration::H; start_delay=zero(H), reset_delay=ze
     )
 
     # add reset-related transitions and arcs
-    t_reset_start = nothing
-    t_reset_stop = nothing
-    t_reset = nothing
     if add_reset
         # add transitions
-        t_reset_start,t_reset_stop,t_reset = 
-            add_transition!.((("$(name)_reset_$(trans)") for trans in (:start,:stop,:reset)),(reset_delay, reset_duration, zero(H)),(reset_delay, reset_duration, zero(H)),(1.0,0.0,1.0))
-        
-        # add read arcs
-        push!(R,(p_reset_on, t_reset, 1),(p_reset_off, t_start, 1))
+        t_reset = add_transition!("$(name)_reset",zero(H),zero(H),1.0)
         # add state-changing arcs
         push!(ΔF,
-            (p_on, t_reset, -1),(p_off, t_reset, 1),
-            (p_reset_on, t_reset_start, 1), (p_reset_off, t_reset_start, -1), 
-            (p_reset_on, t_reset_stop, -1), (p_reset_off, t_reset_stop, 1), 
+            (p_on, t_reset, -1),
+            (p_off, t_reset, 1)
         )
     end
 

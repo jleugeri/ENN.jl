@@ -7,6 +7,7 @@ mutable struct DefaultParams{T}
     epsp_duration::T
     ipsp_duration::T
     plateau_duration::T
+    spike_duration::T
     dendritic_threshold::UInt
     synaptic_threshold::UInt
     axon_delay::T
@@ -14,7 +15,7 @@ mutable struct DefaultParams{T}
     p_trans::Union{Float64,Vector{Float64}}
     _manually_set::DefaultDict{Symbol,Bool}
     function DefaultParams{T}(; kwargs...) where T
-        obj = new{T}(Ref{DefaultParams{T}}[], T(1),T(1),T(100), 1, 1, T(0), T(1), 1.0, DefaultDict{Symbol,Bool}(false))
+        obj = new{T}(Ref{DefaultParams{T}}[], T(1),T(1),T(100),T(1), 1, 1, T(0), T(1), 1.0, DefaultDict{Symbol,Bool}(false))
 
         for (key,value) in kwargs
             setproperty!(obj, key, value)

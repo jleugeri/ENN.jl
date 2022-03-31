@@ -1,4 +1,5 @@
 using SparseArrays
+import StatsBase
 
 export TPNState, TPN, isenabled, isready, isvalidstate, update_clock!, max_delay, elapse!, fire!, fire_all!, fire_necessary!, run!
 
@@ -46,6 +47,7 @@ struct TPN{M,H}
     # internal helper variables
     may_disable::SparseMatrixCSC{Bool}
     may_enable::SparseMatrixCSC{Bool}
+    is_alternative::SparseMatrixCSC{Bool}
     P_index::Dict{Symbol,Int}
     T_index::Dict{Symbol,Int}
 
@@ -74,11 +76,12 @@ struct TPN{M,H}
     
         may_disable = spzeros(Bool, nT, nT)
         may_enable = spzeros(Bool, nT, nT)
+        is_alternative = spzeros(Bool, nT, nT)
         
         P_index = Dict(value=>key for (key,value) in enumerate(P))
         T_index = Dict(value=>key for (key,value) in enumerate(T))
 
-        pn = new{M,H}(P,T,C,ΔF,eft,lft,trans_probs,x₀, may_disable, may_enable, P_index, T_index)
+        pn = new{M,H}(P,T,C,ΔF,eft,lft,trans_probs,x₀, may_disable, may_enable, is_alternative, P_index, T_index)
         
         update!(pn)
         pn
@@ -180,6 +183,9 @@ function update!(pn::TPN{M,H}) where {M,H}
             checked = C_rows[nzrange(pn.C, t_id′)]
             if !isdisjoint(decreased, checked) 
                 pn.may_disable[t_id′,t_id] = true 
+                # if t_id′ disables t_id or vice versa, both transactions are alternatives to each other
+                pn.is_alternative[t_id′,t_id] = true
+                pn.is_alternative[t_id,t_id′] = true
             end
             if !isdisjoint(increased, checked) 
                 pn.may_enable[t_id′,t_id] = true 
@@ -235,13 +241,24 @@ Returns a vector of the fired transition labels.
     This modifies the state `x`!
 """
 function fire_all!(pn::TPN, x; must_fire=isready)
-    options = Set(t_id for t_id in eachindex(pn.T) if must_fire(pn, x, t_id))
+    options = Set([t_id for t_id in eachindex(pn.T) if must_fire(pn, x, t_id)])
     transitions = Symbol[]
     while !isempty(options)
-        t_id = pop!(options, rand(options))
+        # pick a random option
+        opt = rand(options)
+        # find the alternative options that are currently viable (including 'opt'!) 
+        # and might conflict with this one
+        alternatives = [val for val in rowvals(pn.is_alternative)[nzrange(pn.is_alternative,opt)] if val ∈ options]
+        # find the probabilities of these alternatives
+        alternatives_probs = [pn.trans_probs[t] for t in alternatives]
+        # select one alternative according to its probability
+        t_id = pop!(options, StatsBase.sample(alternatives, StatsBase.AnalyticWeights(alternatives_probs)))
+        if length(alternatives)>1
+            println("Picked $(pn.T[t_id]) out of these options: $([(pn.T[t], pn.trans_probs[t]) for t in alternatives])")
+        end
         fire!(pn, x, t_id; check_ready=false)
         push!(transitions, pn.T[t_id])
-
+        
         # check if transition must fire again
         if must_fire(pn, x, t_id)
             push!(options, t_id)

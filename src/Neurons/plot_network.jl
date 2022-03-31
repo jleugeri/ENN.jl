@@ -15,7 +15,7 @@ include("plot_wires.jl")
     Attributes(
         linewidth=3,
         csegs=20,
-        axon_margin = 0.05,
+        axon_margin = 0.075,
         bridge_radius = 0.025,
         neuron_margin = 0.1,
         default_axon_color=(active=:red,passive=:black),
@@ -67,9 +67,7 @@ function Makie.plot!(netplot::NetPlot)
     horizontal_axons=NamedTuple{(:name,:x_range, :tgts),Tuple{Symbol,IntervalSets.ClosedInterval{Float32}, Vector{Point2f}}}[]
     for (name,neuron) in pairs(neurons)
         targets = get(net.axons, name, [])
-        x_min = Inf
-        x_max = -Inf
-        x_root = neuron[:soma][][1]
+        x_min = x_max = x_root = neuron[:soma][][1]
         
         tgts = Point2f[]
         
@@ -148,7 +146,7 @@ function Makie.plot!(netplot::NetPlot)
                 append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts[1:end-1]])
             elseif soma[][1] > axon.tgts[end][1] 
                 # soma is right of all targets -> draw a left arm
-                push!(wrs, [axon.tgts[1],knee])
+                push!(wrs, [knee, axon.tgts[1]])
                 append!(wrs, [[Point2f(tgt[1], axon_y),tgt] for tgt in axon.tgts[2:end]])
             end
         end
@@ -260,3 +258,28 @@ function set_colors_to_state!(netplot)
 
     notify(state)
 end
+
+
+
+@recipe(MultiRowNetPlot, networks) do scene
+    Attributes(
+        linewidth=3,
+        csegs=20,
+        axon_margin = 0.075,
+        bridge_radius = 0.025,
+        neuron_margin = 0.1,
+        default_axon_color=(active=:red,passive=:black),
+        default_input_color=(active=:red,passive=:black),
+        default_dendrite_color=(active=:red,passive=:silver),
+        default_spine_color=(active=:red,passive=:silver),
+        input_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
+        axon_colors = DefaultDict{Symbol,Union{Symbol,RGBf,RGBAf}}(:black),
+        dendrite_colors = DefaultDict{Tuple{Symbol,Symbol},Union{Symbol,RGBf,RGBAf}}(:silver),
+        spine_colors = DefaultDict{Tuple{Symbol,Symbol,Symbol},Union{Symbol,RGBf,RGBAf}}(:silver),
+    )
+end
+
+# function Makie.plot!(netplot::MultiRowNetPlot)
+#     networks = netplot[1][]
+#     for 
+# end
