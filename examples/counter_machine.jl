@@ -279,6 +279,7 @@ net = NeuralNetwork(
 function parse_program(expr::Expr, counters...)
     neurons = []
     connections = []
+    groups = Vector{Symbol}[]
 
     counter_sizes = OrderedDict(counters...)
 
@@ -322,6 +323,9 @@ function parse_program(expr::Expr, counters...)
     pushfirst!(neurons, n)
     pushfirst!(connections, c)
 
+    prog = combine(neurons, connections)
+    push!(groups, collect(keys(prog.neurons)))
+
     # make up-down counters & relay neurons
     for (counter,ops) in pairs(counter_ops)
         sz = get(counter_sizes, counter, length(ops.inc))+1
@@ -332,6 +336,8 @@ function parse_program(expr::Expr, counters...)
 
         push!(neurons, cnt.neurons, rly_inc.neurons, rly_dec.neurons, rly_refresh.neurons)
         push!(connections, cnt.connections, rly_inc.connections, rly_dec.connections, rly_refresh.connections)
+        push!(groups, collect(keys(cnt.neurons)))
+        append!(groups[1],collect(keys(rly_inc.neurons)),collect(keys(rly_dec.neurons)),collect(keys(rly_refresh.neurons)))
     end
     
     prog = combine(neurons, connections)
@@ -343,14 +349,15 @@ function parse_program(expr::Expr, counters...)
             Symbol[],
             (prog.connections)
     )
+    return net,groups
 end
 
 macro program(expr, counters...)
-    net = parse_program(expr, eval.(counters)...)
-    return :($net)
+    net,groups = parse_program(expr, eval.(counters)...)
+    return :($net,$groups)
 end
 
-net = @program begin
+net,groups = @program begin
     INC(1)
     INC(1)
     INC(1)
@@ -373,7 +380,18 @@ net = @program begin
     DEC(1)
 end 1=>5 2=>5
 
-net = @program begin
+
+
+
+
+
+
+
+
+
+
+
+net,groups = @program begin
     INC(1)
     INC(1)
     INC(1)
@@ -389,10 +407,21 @@ net = @program begin
     DEC(3)
 end 1=>5 2=>5 3=>1
 
+
+
+
+
+
+
+
+
+
+
 begin
 f = Figure()
 ax = Axis(f[1, 1], aspect=DataAspect())
-res=netplot!(ax, net)
+res=netplot!(ax, net, groups)
+hidedecorations!(ax)
 display(f)
 trigger_init = make_input_trigger(res, :init)
 trigger_inc = make_input_trigger(res, :step)
@@ -401,15 +430,23 @@ advance_minimal = make_time_advance(res, 1)
 end
 
 ## Run through without looping
-trigger_init()
-advance_cycle()
 begin
+sleep(2)
+trigger_init()
+for i in 1:75
+    sleep(0.001)
+    advance_minimal()
+end
+for j in 1:15
     trigger_inc()
-    advance_cycle()
+    for i in 1:75
+        sleep(0.001)
+        advance_minimal()
+    end
+end
 end
 advance_cycle()
 trigger_inc()
-advance_minimal()
 ## Run through with looping
 trigger_init()
 advance_cycle()
